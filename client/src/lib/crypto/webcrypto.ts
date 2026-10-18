@@ -170,6 +170,9 @@ async function deriveAesKey(sharedSecretHex: string, usage: KeyUsage[]): Promise
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
+  if (typeof (bytes as any).toBase64 === 'function') {
+    return (bytes as any).toBase64();
+  }
   let binary = '';
   const chunk = 16384;
   for (let i = 0; i < bytes.length; i += chunk) {
@@ -179,9 +182,13 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+  if (typeof (Uint8Array as any).fromBase64 === 'function') {
+    return (Uint8Array as any).fromBase64(b64);
+  }
   const binary = atob(b64);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  const len = binary.length;
+  const out = new Uint8Array(len);
+  for (let i = 0; i < len; i++) out[i] = binary.charCodeAt(i);
   return out;
 }
 

@@ -718,7 +718,8 @@ app.post('/api/v1/message', async (req, res) => {
     sendSseEvent(recipientKnotId, {
       type: 'new_message',
       messageId,
-      senderKnotId
+      senderKnotId,
+      message: messageDoc
     });
 
     res.json({

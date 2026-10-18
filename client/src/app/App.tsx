@@ -99,7 +99,16 @@ export default function App() {
               return;
             }
 
-            // Message events: new_message, message_edit, message_delete, message_reaction, clear_chat
+            if (data.type === 'new_message') {
+              if (data.message) {
+                void useChat.getState().pushIncoming(data.message);
+              } else {
+                void useChat.getState().refresh();
+              }
+              return;
+            }
+
+            // Other message events: message_edit, message_delete, message_reaction, clear_chat
             void useChat.getState().refresh();
           } catch (e) {
             console.error('SSE event error:', e);
@@ -136,11 +145,15 @@ export default function App() {
   const [pollInterval, setPollInterval] = useState(800);
   useEffect(() => {
     const handleVisibility = () => {
-      setPollInterval(document.hidden ? 3000 : 800);
+      const isHidden = document.hidden;
+      setPollInterval(isHidden ? 3000 : 800);
+      if (!isHidden && knotId) {
+        void useChat.getState().refresh();
+      }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, []);
+  }, [knotId]);
 
   usePolling(
     () => {

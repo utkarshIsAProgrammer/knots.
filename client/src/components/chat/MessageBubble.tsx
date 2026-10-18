@@ -85,7 +85,8 @@ export function MessageBubble({
   }, [pickerSearch]);
 
   const deleted = message.status === 'deleted';
-  const sticker = message.type === 'sticker' && message.sticker;
+  const stickerSrc = message.sticker || (message.type === 'sticker' ? message.plaintext : null);
+  const sticker = message.type === 'sticker' && Boolean(stickerSrc);
 
   useEffect(() => {
     if (!menu) return;
@@ -183,20 +184,19 @@ export function MessageBubble({
                 }}
                 className={cn(
                   'relative flex items-center justify-center rounded-lg transition-transform hover:scale-[1.02] active:scale-95',
-                  message.sticker?.startsWith('data:') || message.sticker?.startsWith('http') || message.sticker?.includes('/')
+                  stickerSrc?.startsWith('data:') || stickerSrc?.startsWith('http') || stickerSrc?.includes('/')
                     ? 'p-0.5'
                     : 'rounded-lg border border-zinc-800 bg-zinc-950/80 h-24 w-24 sm:h-28 sm:w-28 text-[48px] sm:text-[54px] leading-none'
                 )}
               >
-                {message.sticker?.startsWith('data:') || message.sticker?.startsWith('http') || message.sticker?.includes('/') ? (
+                {stickerSrc?.startsWith('data:') || stickerSrc?.startsWith('http') || stickerSrc?.includes('/') ? (
                   <img
-                    src={message.sticker}
+                    src={stickerSrc}
                     alt="Sticker"
-                    loading="lazy"
                     className="max-h-52 max-w-52 sm:max-h-60 sm:max-w-60 rounded-lg object-contain drop-shadow-[0_8px_24px_rgba(0,0,0,0.8)] pointer-events-none"
                   />
                 ) : (
-                  message.sticker
+                  stickerSrc
                 )}
               </button>
               <div className="mt-1 flex items-center gap-1.5 px-1 text-[10px] text-zinc-500">

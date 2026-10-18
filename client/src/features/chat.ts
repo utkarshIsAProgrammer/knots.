@@ -34,6 +34,7 @@ interface ChatState {
 
   bootstrap: () => Promise<void>;
   refresh: () => Promise<void>;
+  pushIncoming: (raw: RawMessage) => Promise<void>;
   send: (peer: string, input: SendInput, me: string) => Promise<void>;
   edit: (peer: string, id: string, text: string, me: string) => Promise<void>;
   remove: (peer: string, id: string, me: string) => Promise<void>;
@@ -117,7 +118,7 @@ async function decode(raw: RawMessage, me: string): Promise<StoredMessage> {
     nonce: raw.nonce ?? undefined,
     tag: raw.tag ?? undefined,
     type: (raw.type as MessageType) || 'text',
-    sticker: raw.sticker ?? null,
+    sticker: raw.sticker || (raw.type === 'sticker' ? plaintext : null) || null,
     replyTo: (raw.reply_to as ReplyRef) ?? null,
     reactions: raw.reactions ?? [],
     edited: raw.edited,
@@ -145,7 +146,8 @@ export const useChat = create<ChatState>((set, get) => ({
     if (!me) return;
     set({ loading: true });
     try {
-      const existingAll = await loadAllMessages();
+      const inMemory = Object.values(get().threads).flat();
+      const existingAll = inMemory.length > 0 ? inMemory : await loadAllMessages();
       const existingById = new Map(existingAll.map((m) => [m.id, m]));
       const contactsList = useContacts.getState().contacts;
       const contactsMap = new Map(contactsList.map((c) => [c.knot_id.toLowerCase(), c]));
@@ -281,6 +283,50 @@ export const useChat = create<ChatState>((set, get) => ({
     }
   },
 
+  pushIncoming: async (raw: RawMessage) => {
+    const { useIdentity } = await import('./identity');
+    const { useContacts } = await import('./contacts');
+    const me = useIdentity.getState().identity;
+    if (!me) return;
+
+    const rawId = String(raw._id || (raw as any).id || '');
+    if (!rawId) return;
+
+    // Fast deduplication: if already in memory, skip
+    const currentThreads = get().threads;
+    for (const msgs of Object.values(currentThreads)) {
+      if (msgs.some((m) => m.id === rawId)) {
+        return;
+      }
+    }
+
+    const decoded = await decode(raw, me.knotId);
+    await putMessage(decoded);
+
+    const contactsList = useContacts.getState().contacts;
+    const contact = contactsList.find(
+      (c) => c.knot_id.toLowerCase() === (raw.sender_knot_id || '').toLowerCase()
+    );
+    if (!contact?.muted) {
+      playPing();
+      notifications.notifyActivity(raw.sender_knot_id || decoded.senderId);
+    }
+
+    set((s) => {
+      const threadKey = decoded.thread;
+      const pLower = threadKey.trim().toLowerCase();
+      const existingKey = Object.keys(s.threads).find((k) => k.toLowerCase() === pLower) || threadKey;
+      const current = s.threads[existingKey] ?? [];
+      if (current.some((m) => m.id === decoded.id)) return s;
+      return {
+        threads: {
+          ...s.threads,
+          [existingKey]: [...current, decoded].sort((a, b) => a.createdAt - b.createdAt)
+        }
+      };
+    });
+  },
+
   send: async (peer, input, me) => {
     const text = input.text.trim();
     if (!text && !input.sticker) return;
@@ -345,7 +391,7 @@ export const useChat = create<ChatState>((set, get) => ({
         ttlSeconds,
         replyTo: input.replyTo ?? undefined,
         type: input.type ?? 'text',
-        sticker: input.sticker ?? null
+        sticker: input.sticker?.startsWith('data:') ? null : (input.sticker ?? null)
       });
 
       const serverId = res.messageId || msgId;
