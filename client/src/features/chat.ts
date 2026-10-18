@@ -9,6 +9,7 @@ import {
 } from '../lib/crypto/webcrypto';
 import {
   clearThread as dbClearThread,
+  db,
   deleteMessageLocal,
   loadAllMessages,
   patchMessage,
@@ -41,6 +42,7 @@ interface ChatState {
   toggleReaction: (peer: string, id: string, emoji: string, me: string) => Promise<void>;
   markRead: (peer: string, me: string) => Promise<void>;
   markThreadReadByPeer: (peerKnotId?: string, messageId?: string) => Promise<void>;
+  retry: (peer: string, id: string, me: string) => Promise<void>;
   purgeThread: (peer: string, me: string) => Promise<void>;
 }
 
@@ -108,8 +110,9 @@ async function decode(raw: RawMessage, me: string): Promise<StoredMessage> {
     expiresAt = createdAt + raw.ttlSeconds * 1000;
   }
 
+  const resolvedId = String(raw._id || (raw as any).id || (raw as any).messageId || '').trim();
   return {
-    id: String(raw._id),
+    id: resolvedId || crypto.randomUUID(),
     thread: peer,
     senderId: raw.sender_knot_id || (isMine ? me : ''),
     recipientId: raw.recipient_knot_id || (isMine ? peer : me),
@@ -129,6 +132,8 @@ async function decode(raw: RawMessage, me: string): Promise<StoredMessage> {
   };
 }
 
+let isRefreshing = false;
+
 export const useChat = create<ChatState>((set, get) => ({
   threads: {},
   loading: false,
@@ -140,17 +145,26 @@ export const useChat = create<ChatState>((set, get) => ({
   },
 
   refresh: async () => {
+    if (isRefreshing) return;
+    isRefreshing = true;
     const { useIdentity } = await import('./identity');
     const { useContacts } = await import('./contacts');
     const me = useIdentity.getState().identity;
-    if (!me) return;
+    if (!me) {
+      isRefreshing = false;
+      return;
+    }
     set({ loading: true });
     try {
       const inMemory = Object.values(get().threads).flat();
       const existingAll = inMemory.length > 0 ? inMemory : await loadAllMessages();
-      const existingById = new Map(existingAll.map((m) => [m.id, m]));
+      const existingById = new Map<string, StoredMessage>();
+      for (const m of existingAll) {
+        if (m.id) existingById.set(String(m.id), m);
+        if ((m as any)._id) existingById.set(String((m as any)._id), m);
+      }
       const contactsList = useContacts.getState().contacts;
-      const contactsMap = new Map(contactsList.map((c) => [c.knot_id.toLowerCase(), c]));
+      const contactsMap = new Map(contactsList.map((c) => [(c.knot_id || '').toLowerCase(), c]));
 
       let playSound = false;
       let mutated = false;
@@ -158,7 +172,9 @@ export const useChat = create<ChatState>((set, get) => ({
       // 1. Process Inbox (fetch only in parallel)
       const inbox = await api.getMessages(me.knotId);
       for (const raw of inbox.messages) {
-        const rawId = String(raw._id || (raw as any).id || '');
+        const rawId = String(raw._id || (raw as any).id || (raw as any).messageId || '').trim();
+        if (!rawId) continue;
+
         if (raw.status === 'deleted') {
           if (existingById.has(rawId)) {
             await deleteMessageLocal(rawId);
@@ -202,17 +218,28 @@ export const useChat = create<ChatState>((set, get) => ({
           const decoded = await decode(raw, me.knotId);
           await putMessage(decoded);
           existingById.set(rawId, decoded);
+          existingById.set(decoded.id, decoded);
           mutated = true;
         } else {
+          // Check local Dexie first to avoid duplicate notifications across sync cycles
+          const inDb = await db.messages.get(rawId).catch(() => undefined);
+          if (inDb) {
+            existingById.set(rawId, inDb);
+            existingById.set(inDb.id, inDb);
+            continue;
+          }
+
           // Brand new incoming message
           const decoded = await decode(raw, me.knotId);
-          const contact = contactsMap.get(raw.sender_knot_id.toLowerCase());
+          const senderKnot = (raw.sender_knot_id || decoded.senderId || '').trim();
+          const contact = senderKnot ? contactsMap.get(senderKnot.toLowerCase()) : undefined;
           if (!contact?.muted) {
             playSound = true;
-            notifications.notifyActivity(raw.sender_knot_id);
+            notifications.notifyActivity(senderKnot, decoded.id);
           }
           await putMessage(decoded);
           existingById.set(rawId, decoded);
+          existingById.set(decoded.id, decoded);
           mutated = true;
         }
       }
@@ -225,7 +252,8 @@ export const useChat = create<ChatState>((set, get) => ({
         sent = [];
       }
       for (const raw of sent) {
-        const rawId = String(raw._id);
+        const rawId = String(raw._id || (raw as any).id || (raw as any).messageId || '').trim();
+        if (!rawId) continue;
         if (raw.status === 'deleted') {
           if (existingById.has(rawId)) {
             await deleteMessageLocal(rawId);
@@ -262,6 +290,7 @@ export const useChat = create<ChatState>((set, get) => ({
           const decoded = await decode(raw, me.knotId);
           await putMessage(decoded);
           existingById.set(rawId, decoded);
+          existingById.set(decoded.id, decoded);
           mutated = true;
         }
       }
@@ -279,6 +308,7 @@ export const useChat = create<ChatState>((set, get) => ({
     } catch {
       // Offline: keep showing the local vault.
     } finally {
+      isRefreshing = false;
       set({ loading: false });
     }
   },
@@ -289,27 +319,31 @@ export const useChat = create<ChatState>((set, get) => ({
     const me = useIdentity.getState().identity;
     if (!me) return;
 
-    const rawId = String(raw._id || (raw as any).id || '');
+    const rawId = String(raw._id || (raw as any).id || (raw as any).messageId || '').trim();
     if (!rawId) return;
 
     // Fast deduplication: if already in memory, skip
     const currentThreads = get().threads;
     for (const msgs of Object.values(currentThreads)) {
-      if (msgs.some((m) => m.id === rawId)) {
+      if (msgs.some((m) => m.id === rawId || (m as any)._id === rawId)) {
         return;
       }
     }
+
+    const inDb = await db.messages.get(rawId).catch(() => undefined);
+    if (inDb) return;
 
     const decoded = await decode(raw, me.knotId);
     await putMessage(decoded);
 
     const contactsList = useContacts.getState().contacts;
-    const contact = contactsList.find(
-      (c) => c.knot_id.toLowerCase() === (raw.sender_knot_id || '').toLowerCase()
-    );
+    const senderKnot = (raw.sender_knot_id || decoded.senderId || '').trim();
+    const contact = senderKnot
+      ? contactsList.find((c) => (c.knot_id || '').toLowerCase() === senderKnot.toLowerCase())
+      : undefined;
     if (!contact?.muted) {
       playPing();
-      notifications.notifyActivity(raw.sender_knot_id || decoded.senderId);
+      notifications.notifyActivity(senderKnot, decoded.id);
     }
 
     set((s) => {
@@ -317,7 +351,7 @@ export const useChat = create<ChatState>((set, get) => ({
       const pLower = threadKey.trim().toLowerCase();
       const existingKey = Object.keys(s.threads).find((k) => k.toLowerCase() === pLower) || threadKey;
       const current = s.threads[existingKey] ?? [];
-      if (current.some((m) => m.id === decoded.id)) return s;
+      if (current.some((m) => m.id === decoded.id || m.id === rawId)) return s;
       return {
         threads: {
           ...s.threads,
@@ -361,7 +395,7 @@ export const useChat = create<ChatState>((set, get) => ({
       status: 'queued',
       createdAt,
       ttlSeconds,
-      expiresAt: ttlSeconds > 0 ? createdAt + ttlSeconds * 1000 : null,
+      expiresAt: null, // Timer only starts after the message is sent successfully
       pending: true
     };
 
@@ -398,11 +432,19 @@ export const useChat = create<ChatState>((set, get) => ({
       if (serverId !== msgId) {
         await deleteMessageLocal(msgId);
       }
+      const sentAt = Date.now();
+      const serverExpiresAt = res.expires_at
+        ? new Date(res.expires_at).getTime()
+        : (ttlSeconds > 0 ? sentAt + ttlSeconds * 1000 : null);
+
       const delivered: StoredMessage = {
         ...local,
         id: serverId,
         pending: false,
-        status: 'delivered' as const
+        failed: false,
+        status: 'delivered' as const,
+        createdAt: sentAt,
+        expiresAt: serverExpiresAt
       };
       await putMessage(delivered);
       set((s) => {
@@ -416,7 +458,7 @@ export const useChat = create<ChatState>((set, get) => ({
         };
       });
     } catch (err) {
-      const failed = { ...local, pending: false, failed: true };
+      const failed = { ...local, pending: false, failed: true, expiresAt: null };
       await putMessage(failed);
       set((s) => {
         const pLower = targetPeer.trim().toLowerCase();
@@ -429,6 +471,98 @@ export const useChat = create<ChatState>((set, get) => ({
         };
       });
       toast.error('Send failed', (err as Error).message);
+    }
+  },
+
+  retry: async (peer, id, me) => {
+    const pLower = peer.trim().toLowerCase();
+    const targetKey = Object.keys(get().threads).find((k) => k.toLowerCase() === pLower) || peer;
+    const thread = get().threads[targetKey] ?? [];
+    const msg = thread.find((m) => m.id === id);
+    if (!msg) return;
+
+    let targetPeer = peer;
+    try {
+      const { useContacts } = await import('./contacts');
+      const contacts = useContacts.getState().contacts;
+      const match = contacts.find((c) => c.knot_id.trim().toLowerCase() === (peer || '').trim().toLowerCase());
+      if (match) targetPeer = match.knot_id;
+    } catch {}
+
+    // Optimistically set pending = true, failed = false, expiresAt = null (timer paused until sent)
+    const retrying: StoredMessage = { ...msg, pending: true, failed: false, expiresAt: null };
+    await patchMessage(id, { pending: true, failed: false, expiresAt: null });
+    set((s) => ({
+      threads: {
+        ...s.threads,
+        [targetKey]: (s.threads[targetKey] ?? []).map((m) => (m.id === id ? retrying : m))
+      }
+    }));
+
+    try {
+      let ciphertext = msg.ciphertext;
+      let nonce = msg.nonce;
+      let tag = msg.tag;
+      if (!ciphertext) {
+        const payloadText = msg.sticker ?? msg.plaintext;
+        const enc = await encryptPayload(payloadText, DEFAULT_SHARED_SECRET);
+        ciphertext = enc.ciphertext;
+        nonce = enc.iv;
+        tag = enc.tag;
+      }
+
+      const res = await api.sendMessage({
+        id: msg.id,
+        messageId: msg.id,
+        recipientKnotId: msg.recipientId || targetPeer,
+        senderKnotId: me,
+        ciphertext,
+        nonce,
+        tag,
+        ttlSeconds: msg.ttlSeconds ?? 86400,
+        replyTo: msg.replyTo ?? undefined,
+        type: msg.type ?? 'text',
+        sticker: msg.sticker?.startsWith('data:') ? null : (msg.sticker ?? null)
+      });
+
+      const serverId = res.messageId || msg.id;
+      if (serverId !== msg.id) {
+        await deleteMessageLocal(msg.id);
+      }
+      const sentAt = Date.now();
+      const ttl = typeof msg.ttlSeconds === 'number' ? msg.ttlSeconds : 86400;
+      const serverExpiresAt = res.expires_at
+        ? new Date(res.expires_at).getTime()
+        : (ttl > 0 ? sentAt + ttl * 1000 : null);
+
+      const delivered: StoredMessage = {
+        ...msg,
+        id: serverId,
+        pending: false,
+        failed: false,
+        status: 'delivered' as const,
+        createdAt: sentAt,
+        expiresAt: serverExpiresAt
+      };
+      await putMessage(delivered);
+      set((s) => ({
+        threads: {
+          ...s.threads,
+          [targetKey]: (s.threads[targetKey] ?? []).map((m) => (m.id === id ? delivered : m))
+        }
+      }));
+      playPing();
+      toast.success('Message sent');
+    } catch (err) {
+      const failed = { ...msg, pending: false, failed: true, expiresAt: null };
+      await putMessage(failed);
+      set((s) => ({
+        threads: {
+          ...s.threads,
+          [targetKey]: (s.threads[targetKey] ?? []).map((m) => (m.id === id ? failed : m))
+        }
+      }));
+      toast.error('Retry failed', (err as Error).message);
     }
   },
 

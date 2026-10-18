@@ -11,9 +11,10 @@ interface MessageListProps {
   onEdit: (message: StoredMessage) => void;
   onDelete: (message: StoredMessage) => void;
   onReact: (message: StoredMessage, emoji: string) => void;
+  onRetry?: (message: StoredMessage) => void;
 }
 
-export function MessageList({ messages, me, onReply, onEdit, onDelete, onReact }: MessageListProps) {
+export function MessageList({ messages, me, onReply, onEdit, onDelete, onReact, onRetry }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const count = messages.length;
 
@@ -46,6 +47,7 @@ export function MessageList({ messages, me, onReply, onEdit, onDelete, onReact }
                   onEdit={onEdit}
                   onDelete={onDelete}
                   onReact={onReact}
+                  onRetry={onRetry}
                 />
               </div>
             </motion.div>

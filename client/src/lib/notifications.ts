@@ -3,6 +3,8 @@ import { useUI } from '../features/ui';
 
 class NotificationService {
   private hasPrompted = false;
+  private notifiedMessageIds = new Set<string>();
+  private lastNotificationTimeBySender = new Map<string, number>();
 
   public isSupported(): boolean {
     return typeof window !== 'undefined' && 'Notification' in window;
@@ -41,36 +43,68 @@ class NotificationService {
   }
 
   /**
-   * Dispatches an anonymous on-device notification.
-   * Completely anonymous — never reveals sender ID, name, or message contents.
+   * Dispatches an on-device notification for a message.
+   * Completely avoids duplicate alerts for the same message and throttles repeated notifications per sender.
    */
-  public notifyActivity(senderKnotId: string) {
+  public notifyActivity(senderKnotId: string, messageId?: string) {
     if (!this.isSupported() || Notification.permission !== 'granted') {
       return;
     }
 
-    // 1. Check if contact is muted
+    const cleanSender = (senderKnotId || '').trim();
+    if (!cleanSender) return;
+
+    // 1. Deduplicate by message ID if provided
+    if (messageId) {
+      const cleanId = String(messageId).trim();
+      if (cleanId) {
+        if (this.notifiedMessageIds.has(cleanId)) {
+          return;
+        }
+        this.notifiedMessageIds.add(cleanId);
+        if (this.notifiedMessageIds.size > 2000) {
+          const firstKey = this.notifiedMessageIds.values().next().value;
+          if (firstKey) this.notifiedMessageIds.delete(firstKey);
+        }
+      }
+    }
+
+    // 2. Throttle alerts per sender (prevent notification storms / loops)
+    const senderKey = cleanSender.toLowerCase();
+    const now = Date.now();
+    const lastNotified = this.lastNotificationTimeBySender.get(senderKey) ?? 0;
+    if (now - lastNotified < 3000) {
+      return;
+    }
+    this.lastNotificationTimeBySender.set(senderKey, now);
+
+    // 3. Check if contact is muted
     const contacts = useContacts.getState().contacts;
-    const contact = contacts.find((c) => (c.knot_id || '').toLowerCase() === (senderKnotId || '').toLowerCase());
+    const contact = contacts.find((c) => (c.knot_id || '').toLowerCase() === senderKey);
     if (contact?.muted) {
       return;
     }
 
-    // 2. Check if user is already actively reading this thread
+    // 4. Check if user is already actively reading this thread
     const activeThread = useUI.getState().activeThread;
     if (
       document.visibilityState === 'visible' &&
       activeThread &&
-      activeThread.toLowerCase() === senderKnotId.toLowerCase()
+      activeThread.toLowerCase() === senderKey
     ) {
       return;
     }
 
     try {
-      const n = new Notification('Knots.', {
-        body: 'New activity. Open Knots to take a look.',
+      const title = contact?.alias || 'Knots';
+      const body = contact?.alias
+        ? 'New message received.'
+        : 'You have a new message. Open Knots to take a look.';
+
+      const n = new Notification(title, {
+        body,
         icon: '/favicon.svg',
-        tag: 'knots-activity',
+        tag: `knots-msg-${senderKey}`,
         silent: false
       });
 
@@ -78,14 +112,16 @@ class NotificationService {
         try {
           window.focus();
         } catch {}
-        useUI.getState().openThread(senderKnotId);
+        useUI.getState().openThread(cleanSender);
         useUI.getState().setSection('chats');
         n.close();
       };
     } catch (e) {
-      console.warn('Failed to display anonymous notification', e);
+      console.warn('Failed to display notification', e);
     }
   }
+
+  public notify = this.notifyActivity.bind(this);
 }
 
 export const notifications = new NotificationService();

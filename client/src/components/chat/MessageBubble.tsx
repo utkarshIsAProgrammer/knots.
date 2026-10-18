@@ -9,9 +9,9 @@ import {
   Pencil,
   Plus,
   Reply,
+  RotateCcw,
   Search,
   Trash2,
-  TriangleAlert,
   X
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
@@ -32,6 +32,7 @@ interface MessageBubbleProps {
   onEdit: (message: StoredMessage) => void;
   onDelete: (message: StoredMessage) => void;
   onReact: (message: StoredMessage, emoji: string) => void;
+  onRetry?: (message: StoredMessage) => void;
 }
 
 function getMenuCoordinates(x: number, y: number, isOutgoing: boolean) {
@@ -66,7 +67,8 @@ export function MessageBubble({
   onReply,
   onEdit,
   onDelete,
-  onReact
+  onReact,
+  onRetry
 }: MessageBubbleProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [showFullPicker, setShowFullPicker] = useState(false);
@@ -200,7 +202,7 @@ export function MessageBubble({
                 )}
               </button>
               <div className="mt-1 flex items-center gap-1.5 px-1 text-[10px] text-zinc-500">
-                {message.expiresAt && !deleted && <BurnChip expiresAt={message.expiresAt} />}
+                {message.expiresAt && !message.pending && !message.failed && !deleted && <BurnChip expiresAt={message.expiresAt} />}
                 <TimeStamp ts={message.createdAt} />
                 {mine && (
                   <span
@@ -218,7 +220,18 @@ export function MessageBubble({
                     className="inline-flex items-center ml-0.5"
                   >
                     {message.failed ? (
-                      <TriangleAlert size={14} className="shrink-0 text-red-500" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRetry?.(message);
+                        }}
+                        className="inline-flex items-center gap-1 rounded bg-red-500/15 hover:bg-red-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-red-500 transition-colors cursor-pointer"
+                        title="Retry sending"
+                      >
+                        <RotateCcw size={11} className="shrink-0 text-red-500" />
+                        <span>Retry</span>
+                      </button>
                     ) : message.pending ? (
                       <Loader2 size={13} className="shrink-0 animate-spin text-zinc-400" />
                     ) : message.status === 'read' ? (
@@ -272,7 +285,7 @@ export function MessageBubble({
                 className="mt-1.5 flex items-center justify-end gap-1.5 text-[10.5px] text-zinc-500 dark:text-zinc-400 font-mono"
               >
                 {message.edited && !deleted && <span className="italic font-sans text-zinc-400">edited</span>}
-                {message.expiresAt && !deleted && <BurnChip expiresAt={message.expiresAt} />}
+                {message.expiresAt && !message.pending && !message.failed && !deleted && <BurnChip expiresAt={message.expiresAt} />}
                 <TimeStamp ts={message.createdAt} />
                 {mine && (
                   <span
@@ -290,7 +303,18 @@ export function MessageBubble({
                     className="inline-flex items-center ml-0.5"
                   >
                     {message.failed ? (
-                      <TriangleAlert size={14} className="shrink-0 text-red-500" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRetry?.(message);
+                        }}
+                        className="inline-flex items-center gap-1 rounded bg-red-500/15 hover:bg-red-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-red-500 transition-colors cursor-pointer"
+                        title="Retry sending"
+                      >
+                        <RotateCcw size={11} className="shrink-0 text-red-500" />
+                        <span>Retry</span>
+                      </button>
                     ) : message.pending ? (
                       <Loader2 size={13} className="shrink-0 animate-spin text-zinc-400" />
                     ) : message.status === 'read' ? (
@@ -314,6 +338,16 @@ export function MessageBubble({
                 mine ? 'right-1' : 'left-1'
               )}
             >
+              {message.failed && onRetry && (
+                <button
+                  type="button"
+                  onClick={() => onRetry(message)}
+                  title="Retry sending"
+                  className="grid h-6 w-6 place-items-center rounded text-red-500 hover:bg-red-500/10 hover:text-red-600 transition-colors"
+                >
+                  <RotateCcw size={13} />
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onReply(message)}
@@ -468,6 +502,18 @@ export function MessageBubble({
 
               {/* 2. Action Menu List Card (Below) */}
               <div className="flex w-52 flex-col gap-0.5 rounded-lg border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-[#000000] p-1.5 shadow-2xl backdrop-blur-xl">
+                {message.failed && onRetry && (
+                  <MenuItem
+                    icon={<RotateCcw size={15} className="text-red-500 animate-pulse" />}
+                    label="Retry sending"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRetry(message);
+                      setMenu(null);
+                    }}
+                  />
+                )}
+
                 {!deleted && (
                   <MenuItem
                     icon={<Reply size={15} className="text-zinc-600 dark:text-zinc-400" />}
