@@ -1,0 +1,330 @@
+/* ============================================================
+   Knots. — Base layer, glass materials, motion primitives
+   ============================================================ */
+
+@font-face {
+  font-family: 'Billabong';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('Billabong'),
+       url('/fonts/Billabong.woff') format('woff'),
+       url('https://fonts.cdnfonts.com/s/13949/Billabong.woff') format('woff');
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.title,
+[role="heading"] {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--text);
+}
+
+/* ---- Focus ---- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* ---- Scrollbars ---- */
+.scroll-area {
+  scrollbar-width: thin;
+  scrollbar-color: var(--glass-stroke) transparent;
+}
+.scroll-area::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: var(--glass-stroke);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.scroll-area::-webkit-scrollbar-thumb:hover {
+  background: var(--glass-tint-3);
+  background-clip: content-box;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ============================================================
+   Materials — the glass stack
+   ============================================================ */
+
+.glass {
+  background: var(--surface-card);
+  border: 1px solid var(--glass-stroke);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--ambient);
+}
+
+.glass-raised {
+  background: var(--surface-elevated);
+  border: 1px solid var(--glass-stroke);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: var(--ambient-strong);
+}
+
+.glass-floating {
+  background: var(--surface-elevated);
+  border: 1px solid var(--glass-stroke);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  box-shadow: var(--ambient-strong);
+}
+
+/* Hairline divider that reads on glass */
+.hairline {
+  border-color: var(--hairline);
+}
+
+/* Filament helpers */
+.filament-text {
+  background: var(--filament);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.filament-bg {
+  background: var(--filament);
+}
+
+/* ============================================================
+   Backdrop — aurora blooms + film grain (fixed, non-interactive)
+   ============================================================ */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--canvas);
+}
+.backdrop__blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  will-change: transform;
+}
+.backdrop__blob--1 {
+  width: 46vw;
+  height: 46vw;
+  top: -12vw;
+  left: -8vw;
+  background: var(--aurora-1);
+  animation: drift1 26s var(--ease-standard) infinite alternate;
+}
+.backdrop__blob--2 {
+  width: 40vw;
+  height: 40vw;
+  bottom: -14vw;
+  right: -6vw;
+  background: var(--aurora-2);
+  animation: drift2 32s var(--ease-standard) infinite alternate;
+}
+.backdrop__blob--3 {
+  width: 32vw;
+  height: 32vw;
+  top: 40%;
+  left: 55%;
+  background: var(--aurora-3);
+  animation: drift3 38s var(--ease-standard) infinite alternate;
+}
+
+.grain::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@keyframes drift1 {
+  to {
+    transform: translate3d(6vw, 5vw, 0) scale(1.12);
+  }
+}
+@keyframes drift2 {
+  to {
+    transform: translate3d(-7vw, -4vw, 0) scale(1.08);
+  }
+}
+@keyframes drift3 {
+  to {
+    transform: translate3d(-5vw, 6vw, 0) scale(1.15);
+  }
+}
+
+/* ============================================================
+   Motion primitives
+   ============================================================ */
+
+@keyframes shimmer {
+  0% {
+    background-position: -160% 0;
+  }
+  100% {
+    background-position: 260% 0;
+  }
+}
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--glass-tint) 0%,
+    var(--glass-tint-3) 50%,
+    var(--glass-tint) 100%
+  );
+  background-size: 220% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+.breathe {
+  animation: breathe 2.4s var(--ease-standard) infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise-in {
+  animation: riseIn var(--dur-std) var(--ease-out-expo) both;
+}
+
+/* Cursor-follow specular sheen for primary buttons (set --mx/--my on the element) */
+.sheen {
+  position: relative;
+  overflow: hidden;
+}
+.sheen::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(
+    160px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(255, 255, 255, 0.35),
+    transparent 60%
+  );
+  opacity: 0;
+  transition: opacity var(--dur-std) var(--ease-standard);
+  pointer-events: none;
+}
+.sheen:hover::after {
+  opacity: 1;
+}
+
+/* Progressive blur edge for toolbars */
+.edge-blur-b {
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+
+/* Mono technical text */
+.mono {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
+/* ============================================================
+   Reduced motion
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .backdrop__blob {
+    animation: none !important;
+  }
+}

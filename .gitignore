@@ -29,3 +29,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Miscellaneous
+dont-touch.md

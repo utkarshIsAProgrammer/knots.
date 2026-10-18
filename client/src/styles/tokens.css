@@ -1,0 +1,130 @@
+/* ============================================================
+   Knots. — Design Tokens (single source of truth)
+   Aesthetic: "Knots Liquid Glass" (Apple Liquid Glass + restraint)
+   ============================================================ */
+
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif;
+  --font-serif: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif;
+  --font-logo: 'Billabong', cursive;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+
+  /* ---- Radius (Orbit Boxy Precision) ---- */
+  --r-xs: 3px;
+  --r-sm: 5px;
+  --r-md: 7px;
+  --r-lg: 9px;
+  --r-xl: 12px;
+  --r-2xl: 14px;
+  --r-sheet: 12px;
+  --r-pill: 8px;
+
+  /* ---- Motion ---- */
+  --ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-micro: 160ms;
+  --dur-std: 280ms;
+  --dur-sheet: 420ms;
+
+  /* ---- Materials ---- */
+  --blur-sm: blur(14px) saturate(160%);
+  --blur-md: blur(26px) saturate(180%);
+  --blur-lg: blur(44px) saturate(190%);
+  --blur-xl: blur(72px) saturate(200%);
+
+  /* ---- Signature filament gradient ---- */
+  --filament: linear-gradient(115deg, var(--accent) 0%, var(--accent-2) 48%, var(--accent-3) 100%);
+}
+
+/* ============================================================
+   Two themes only — pure monochrome.
+   Everything is a combination of black and white.
+   ============================================================ */
+
+/* ============================ THEME 1 · ROYAL PURE BLACK & WHITE ============================ */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --canvas: #000000;
+  --canvas-2: #09090b;
+
+  --surface-elevated: #111114;
+  --surface-card: #000000;
+  --surface-bubble-mine: #1f1f23;
+  --surface-bubble-peer: #000000;
+  --glass-tint: rgba(255, 255, 255, 0.03);
+  --glass-tint-2: rgba(255, 255, 255, 0.06);
+  --glass-tint-3: rgba(255, 255, 255, 0.1);
+  --glass-stroke: rgba(255, 255, 255, 0.1);
+  --glass-sheen: rgba(255, 255, 255, 0.05);
+  --glass-deep: #000000;
+
+  --text: #ffffff;
+  --text-2: rgba(255, 255, 255, 0.72);
+  --text-3: rgba(255, 255, 255, 0.42);
+  --hairline: rgba(255, 255, 255, 0.09);
+
+  --accent: #ffffff;
+  --accent-2: #e4e4e7;
+  --accent-3: #a1a1aa;
+  --on-accent: #000000;
+
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  --scrim: rgba(0, 0, 0, 0.92);
+  --ambient: 0 16px 40px -16px rgba(0, 0, 0, 0.95);
+  --ambient-strong: 0 24px 64px -20px rgba(0, 0, 0, 0.99);
+
+  /* Ambient filament bloom */
+  --filament: linear-gradient(135deg, #ffffff 0%, #e4e4e7 45%, #a1a1aa 100%);
+  --aurora-1: rgba(255, 255, 255, 0.015);
+  --aurora-2: rgba(255, 255, 255, 0.008);
+  --aurora-3: rgba(255, 255, 255, 0.012);
+}
+
+/* ============================ THEME 2 · PROPER LUXURY STUDIO WHITE ============================ */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --canvas: #fafafa;
+  --canvas-2: #f4f4f5;
+
+  --surface-elevated: #ffffff;
+  --surface-card: #ffffff;
+  --surface-bubble-mine: #e4e4e7;
+  --surface-bubble-peer: #ffffff;
+  --glass-tint: rgba(0, 0, 0, 0.025);
+  --glass-tint-2: rgba(0, 0, 0, 0.05);
+  --glass-tint-3: rgba(0, 0, 0, 0.08);
+  --glass-stroke: rgba(0, 0, 0, 0.09);
+  --glass-sheen: rgba(255, 255, 255, 0.95);
+  --glass-deep: #ffffff;
+
+  --text: #09090b;
+  --text-2: rgba(0, 0, 0, 0.68);
+  --text-3: rgba(0, 0, 0, 0.44);
+  --hairline: rgba(0, 0, 0, 0.09);
+
+  --accent: #09090b;
+  --accent-2: #27272a;
+  --accent-3: #71717a;
+  --on-accent: #ffffff;
+
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+
+  --scrim: rgba(0, 0, 0, 0.45);
+  --ambient: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
+  --ambient-strong: 0 20px 48px -12px rgba(0, 0, 0, 0.12);
+
+  --filament: linear-gradient(135deg, #09090b 0%, #27272a 45%, #71717a 100%);
+  --aurora-1: rgba(0, 0, 0, 0.02);
+  --aurora-2: rgba(0, 0, 0, 0.012);
+  --aurora-3: rgba(0, 0, 0, 0.018);
+}
