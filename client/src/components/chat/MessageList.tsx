@@ -33,7 +33,7 @@ export function MessageList({ messages, me, onReply, onEdit, onDelete, onReact }
               layout="position"
               initial={{ opacity: 0, y: 10, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9, filter: 'blur(8px)', transition: { duration: 0.24 } }}
+              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
               transition={{ type: 'spring', stiffness: 420, damping: 34 }}
             >
               {newDay && <DateDivider ts={message.createdAt} />}

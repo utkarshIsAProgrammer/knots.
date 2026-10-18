@@ -91,7 +91,15 @@ export default function App() {
               return;
             }
 
-            // Message events: new_message, read_receipt, message_edit, message_delete, message_reaction, clear_chat
+            if (data.type === 'read_receipt') {
+              if (data.peer || data.messageId) {
+                void useChat.getState().markThreadReadByPeer(data.peer, data.messageId);
+              }
+              void useChat.getState().refresh();
+              return;
+            }
+
+            // Message events: new_message, message_edit, message_delete, message_reaction, clear_chat
             void useChat.getState().refresh();
           } catch (e) {
             console.error('SSE event error:', e);

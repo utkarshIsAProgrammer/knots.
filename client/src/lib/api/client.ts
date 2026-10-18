@@ -133,6 +133,8 @@ export const api = {
   },
 
   sendMessage(payload: {
+    id?: string;
+    messageId?: string;
     recipientKnotId: string;
     senderKnotId: string;
     ciphertext: string;

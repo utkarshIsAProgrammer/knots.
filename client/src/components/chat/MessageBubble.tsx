@@ -4,8 +4,8 @@ import { motion } from 'framer-motion';
 import {
   Check,
   CheckCheck,
-  Clock,
   Copy,
+  Loader2,
   Pencil,
   Plus,
   Reply,
@@ -202,6 +202,34 @@ export function MessageBubble({
               <div className="mt-1 flex items-center gap-1.5 px-1 text-[10px] text-zinc-500">
                 {message.expiresAt && !deleted && <BurnChip expiresAt={message.expiresAt} />}
                 <TimeStamp ts={message.createdAt} />
+                {mine && (
+                  <span
+                    title={
+                      message.failed
+                        ? 'Failed'
+                        : message.pending
+                          ? 'Sending…'
+                          : message.status === 'read'
+                            ? 'Read'
+                            : message.status === 'delivered'
+                              ? 'Delivered'
+                              : 'Sent'
+                    }
+                    className="inline-flex items-center ml-0.5"
+                  >
+                    {message.failed ? (
+                      <TriangleAlert size={14} className="shrink-0 text-red-500" />
+                    ) : message.pending ? (
+                      <Loader2 size={13} className="shrink-0 animate-spin text-zinc-400" />
+                    ) : message.status === 'read' ? (
+                      <CheckCheck size={16} strokeWidth={2.4} className="shrink-0 text-[#0284c7] dark:text-[#38bdf8]" />
+                    ) : message.status === 'delivered' ? (
+                      <CheckCheck size={16} strokeWidth={2.2} className="shrink-0 text-zinc-600 dark:text-zinc-400" />
+                    ) : (
+                      <Check size={15} strokeWidth={2.2} className="shrink-0 text-zinc-600 dark:text-zinc-400" />
+                    )}
+                  </span>
+                )}
               </div>
             </div>
           ) : (
@@ -264,7 +292,7 @@ export function MessageBubble({
                     {message.failed ? (
                       <TriangleAlert size={14} className="shrink-0 text-red-500" />
                     ) : message.pending ? (
-                      <Clock size={14} className="shrink-0 text-zinc-400" />
+                      <Loader2 size={13} className="shrink-0 animate-spin text-zinc-400" />
                     ) : message.status === 'read' ? (
                       <CheckCheck size={16} strokeWidth={2.4} className="shrink-0 text-[#0284c7] dark:text-[#38bdf8]" />
                     ) : message.status === 'delivered' ? (

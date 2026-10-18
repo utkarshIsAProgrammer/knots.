@@ -39,6 +39,7 @@ interface ChatState {
   remove: (peer: string, id: string, me: string) => Promise<void>;
   toggleReaction: (peer: string, id: string, emoji: string, me: string) => Promise<void>;
   markRead: (peer: string, me: string) => Promise<void>;
+  markThreadReadByPeer: (peerKnotId?: string, messageId?: string) => Promise<void>;
   purgeThread: (peer: string, me: string) => Promise<void>;
 }
 
@@ -54,8 +55,11 @@ function group(messages: StoredMessage[]): Record<string, StoredMessage[]> {
 }
 
 async function decode(raw: RawMessage, me: string): Promise<StoredMessage> {
-  const isMine = (raw.sender_knot_id || '').trim().toLowerCase() === (me || '').trim().toLowerCase();
-  const rawPeer = isMine ? raw.recipient_knot_id : raw.sender_knot_id;
+  const myKnotId = (me || '').trim().toLowerCase();
+  const rawSender = (raw.sender_knot_id || '').trim();
+  const rawRecipient = (raw.recipient_knot_id || '').trim();
+  const isMine = !rawSender || rawSender.toLowerCase() === myKnotId;
+  const rawPeer = isMine ? (rawRecipient || rawSender) : rawSender;
 
   // Resolve to canonical contact knotId if known
   let peer = rawPeer;
@@ -90,11 +94,24 @@ async function decode(raw: RawMessage, me: string): Promise<StoredMessage> {
   const status =
     deleted ? 'deleted' : raw.status === 'read' ? 'read' : raw.status === 'delivered' ? 'delivered' : 'delivered';
 
+  const rawCreated = raw.created_at ? new Date(raw.created_at).getTime() : Date.now();
+  const createdAt = Number.isNaN(rawCreated) ? Date.now() : rawCreated;
+
+  let expiresAt: number | null = null;
+  if (raw.ttlSeconds === 0) {
+    expiresAt = null;
+  } else if (raw.expires_at) {
+    const parsedExp = new Date(raw.expires_at).getTime();
+    expiresAt = Number.isNaN(parsedExp) ? null : parsedExp;
+  } else if (raw.ttlSeconds && raw.ttlSeconds > 0) {
+    expiresAt = createdAt + raw.ttlSeconds * 1000;
+  }
+
   return {
-    id: raw._id,
+    id: String(raw._id),
     thread: peer,
-    senderId: raw.sender_knot_id,
-    recipientId: raw.recipient_knot_id,
+    senderId: raw.sender_knot_id || (isMine ? me : ''),
+    recipientId: raw.recipient_knot_id || (isMine ? peer : me),
     plaintext,
     ciphertext: raw.ciphertext,
     nonce: raw.nonce ?? undefined,
@@ -105,8 +122,8 @@ async function decode(raw: RawMessage, me: string): Promise<StoredMessage> {
     reactions: raw.reactions ?? [],
     edited: raw.edited,
     status,
-    createdAt: new Date(raw.created_at).getTime(),
-    expiresAt: raw.expires_at ? new Date(raw.expires_at).getTime() : null,
+    createdAt,
+    expiresAt,
     ttlSeconds: raw.ttlSeconds
   };
 }
@@ -139,10 +156,11 @@ export const useChat = create<ChatState>((set, get) => ({
       // 1. Process Inbox (fetch only in parallel)
       const inbox = await api.getMessages(me.knotId);
       for (const raw of inbox.messages) {
+        const rawId = String(raw._id || (raw as any).id || '');
         if (raw.status === 'deleted') {
-          if (existingById.has(raw._id)) {
-            await deleteMessageLocal(raw._id);
-            existingById.delete(raw._id);
+          if (existingById.has(rawId)) {
+            await deleteMessageLocal(rawId);
+            existingById.delete(rawId);
             mutated = true;
           }
           continue;
@@ -156,15 +174,15 @@ export const useChat = create<ChatState>((set, get) => ({
           expiresAt = new Date(raw.created_at).getTime() + raw.ttlSeconds * 1000;
         }
         if (expiresAt && expiresAt <= Date.now()) {
-          if (existingById.has(raw._id)) {
-            await deleteMessageLocal(raw._id);
-            existingById.delete(raw._id);
+          if (existingById.has(rawId)) {
+            await deleteMessageLocal(rawId);
+            existingById.delete(rawId);
             mutated = true;
           }
           continue;
         }
 
-        const existing = existingById.get(raw._id);
+        const existing = existingById.get(rawId);
         if (existing) {
           // Check if modified
           const reactionsMatch =
@@ -181,7 +199,7 @@ export const useChat = create<ChatState>((set, get) => ({
 
           const decoded = await decode(raw, me.knotId);
           await putMessage(decoded);
-          existingById.set(raw._id, decoded);
+          existingById.set(rawId, decoded);
           mutated = true;
         } else {
           // Brand new incoming message
@@ -192,7 +210,7 @@ export const useChat = create<ChatState>((set, get) => ({
             notifications.notifyActivity(raw.sender_knot_id);
           }
           await putMessage(decoded);
-          existingById.set(raw._id, decoded);
+          existingById.set(rawId, decoded);
           mutated = true;
         }
       }
@@ -205,15 +223,16 @@ export const useChat = create<ChatState>((set, get) => ({
         sent = [];
       }
       for (const raw of sent) {
+        const rawId = String(raw._id);
         if (raw.status === 'deleted') {
-          if (existingById.has(raw._id)) {
-            await deleteMessageLocal(raw._id);
-            existingById.delete(raw._id);
+          if (existingById.has(rawId)) {
+            await deleteMessageLocal(rawId);
+            existingById.delete(rawId);
             mutated = true;
           }
           continue;
         }
-        const existing = existingById.get(raw._id);
+        const existing = existingById.get(rawId);
         if (existing) {
           const nextStatus =
             raw.status === 'read' ? 'read' : raw.status === 'delivered' ? 'delivered' : existing.status;
@@ -223,21 +242,24 @@ export const useChat = create<ChatState>((set, get) => ({
           const statusMatch = nextStatus === existing.status;
           const editMatch = Boolean(raw.edited) === Boolean(existing.edited);
 
-          if (!reactionsMatch || !statusMatch || !editMatch) {
-            await patchMessage(raw._id, {
+          if (!reactionsMatch || !statusMatch || !editMatch || existing.pending) {
+            await patchMessage(existing.id, {
               status: nextStatus,
               reactions: raw.reactions ?? existing.reactions,
-              edited: raw.edited ?? existing.edited
+              edited: raw.edited ?? existing.edited,
+              pending: false
             });
             existing.status = nextStatus;
+            existing.pending = false;
             if (raw.reactions) existing.reactions = raw.reactions;
             if (raw.edited) existing.edited = raw.edited;
             mutated = true;
           }
         } else {
+          if (!raw.sender_knot_id) raw.sender_knot_id = me.knotId;
           const decoded = await decode(raw, me.knotId);
           await putMessage(decoded);
-          existingById.set(raw._id, decoded);
+          existingById.set(rawId, decoded);
           mutated = true;
         }
       }
@@ -263,7 +285,7 @@ export const useChat = create<ChatState>((set, get) => ({
     const text = input.text.trim();
     if (!text && !input.sticker) return;
     const createdAt = Date.now();
-    const tempId = crypto.randomUUID();
+    const msgId = crypto.randomUUID();
 
     let targetPeer = peer;
     try {
@@ -278,7 +300,7 @@ export const useChat = create<ChatState>((set, get) => ({
     const ttlSeconds = typeof input.ttlSeconds === 'number' ? input.ttlSeconds : 86400;
 
     const local: StoredMessage = {
-      id: tempId,
+      id: msgId,
       thread: targetPeer,
       senderId: me,
       recipientId: targetPeer,
@@ -298,16 +320,23 @@ export const useChat = create<ChatState>((set, get) => ({
     };
 
     await putMessage(local);
-    set((s) => ({
-      threads: {
-        ...s.threads,
-        [targetPeer]: [...(s.threads[targetPeer] ?? []), local]
-      }
-    }));
+    set((s) => {
+      const pLower = targetPeer.trim().toLowerCase();
+      const targetKey = Object.keys(s.threads).find((k) => k.toLowerCase() === pLower) || targetPeer;
+      const current = s.threads[targetKey] ?? [];
+      return {
+        threads: {
+          ...s.threads,
+          [targetKey]: [...current, local]
+        }
+      };
+    });
     playPing();
 
     try {
       const res = await api.sendMessage({
+        id: msgId,
+        messageId: msgId,
         recipientKnotId: targetPeer,
         senderKnotId: me,
         ciphertext: enc.ciphertext,
@@ -319,32 +348,40 @@ export const useChat = create<ChatState>((set, get) => ({
         sticker: input.sticker ?? null
       });
 
-      const realId = res.messageId || tempId;
-      if (realId !== tempId) {
-        await deleteMessageLocal(tempId);
+      const serverId = res.messageId || msgId;
+      if (serverId !== msgId) {
+        await deleteMessageLocal(msgId);
       }
       const delivered: StoredMessage = {
         ...local,
-        id: realId,
+        id: serverId,
         pending: false,
         status: 'delivered' as const
       };
       await putMessage(delivered);
-      set((s) => ({
-        threads: {
-          ...s.threads,
-          [targetPeer]: (s.threads[targetPeer] ?? []).map((m) => (m.id === tempId ? delivered : m))
-        }
-      }));
+      set((s) => {
+        const pLower = targetPeer.trim().toLowerCase();
+        const targetKey = Object.keys(s.threads).find((k) => k.toLowerCase() === pLower) || targetPeer;
+        return {
+          threads: {
+            ...s.threads,
+            [targetKey]: (s.threads[targetKey] ?? []).map((m) => (m.id === msgId ? delivered : m))
+          }
+        };
+      });
     } catch (err) {
       const failed = { ...local, pending: false, failed: true };
       await putMessage(failed);
-      set((s) => ({
-        threads: {
-          ...s.threads,
-          [targetPeer]: (s.threads[targetPeer] ?? []).map((m) => (m.id === tempId ? failed : m))
-        }
-      }));
+      set((s) => {
+        const pLower = targetPeer.trim().toLowerCase();
+        const targetKey = Object.keys(s.threads).find((k) => k.toLowerCase() === pLower) || targetPeer;
+        return {
+          threads: {
+            ...s.threads,
+            [targetKey]: (s.threads[targetKey] ?? []).map((m) => (m.id === msgId ? failed : m))
+          }
+        };
+      });
       toast.error('Send failed', (err as Error).message);
     }
   },
@@ -427,24 +464,80 @@ export const useChat = create<ChatState>((set, get) => ({
   },
 
   markRead: async (peer, me) => {
-    const pLower = peer.trim().toLowerCase();
-    const targetKey = Object.keys(get().threads).find((k) => k.toLowerCase() === pLower) || peer;
-    const thread = get().threads[targetKey] ?? [];
-    const unread = thread.filter((m) => m.recipientId === me && m.status !== 'read' && m.status !== 'deleted');
+    const pLower = (peer || '').trim().toLowerCase();
+    const meLower = (me || '').trim().toLowerCase();
+    if (!pLower || !meLower) return;
+
+    const currentThreads = get().threads;
+    const matchingKeys = Object.keys(currentThreads).filter((k) => k.trim().toLowerCase() === pLower);
+    if (!matchingKeys.length) matchingKeys.push(peer);
+
+    const allMatchingMsgs = matchingKeys.flatMap((k) => currentThreads[k] ?? []);
+    const unread = allMatchingMsgs.filter((m) => {
+      if (m.status === 'read' || m.status === 'deleted') return false;
+      const rec = (m.recipientId || '').trim().toLowerCase();
+      const snd = (m.senderId || '').trim().toLowerCase();
+      return rec === meLower || (snd !== meLower && snd.length > 0);
+    });
+
     if (!unread.length) return;
+
     try {
       await api.markAllRead(me, peer);
-      for (const m of unread) await patchMessage(m.id, { status: 'read' });
-      set((s) => ({
-        threads: {
-          ...s.threads,
-          [targetKey]: (s.threads[targetKey] ?? []).map((m) =>
-            m.recipientId === me && m.status !== 'deleted' ? { ...m, status: 'read' as const } : m
-          )
+      for (const m of unread) {
+        await patchMessage(m.id, { status: 'read' });
+      }
+      set((s) => {
+        const nextThreads = { ...s.threads };
+        for (const k of matchingKeys) {
+          nextThreads[k] = (nextThreads[k] ?? []).map((m) => {
+            const rec = (m.recipientId || '').trim().toLowerCase();
+            const snd = (m.senderId || '').trim().toLowerCase();
+            const isIncoming = rec === meLower || (snd !== meLower && snd.length > 0);
+            return isIncoming && m.status !== 'deleted' ? { ...m, status: 'read' as const } : m;
+          });
         }
-      }));
+        return { threads: nextThreads };
+      });
     } catch {
       /* offline — retry on next refresh */
+    }
+  },
+
+  markThreadReadByPeer: async (peerKnotId?: string, messageId?: string) => {
+    const pLower = (peerKnotId || '').trim().toLowerCase();
+    const targetId = messageId ? String(messageId) : null;
+    if (!pLower && !targetId) return;
+
+    const currentThreads = get().threads;
+    let mutated = false;
+    const updatedThreads: Record<string, StoredMessage[]> = {};
+
+    for (const [threadKey, msgs] of Object.entries(currentThreads)) {
+      const threadMatches = pLower && threadKey.trim().toLowerCase() === pLower;
+      let threadMutated = false;
+
+      const nextMsgs = msgs.map((m) => {
+        const isTargetMsg = Boolean(targetId && String(m.id) === targetId);
+        const isPeerMsg = Boolean(
+          (threadMatches || (pLower && (m.recipientId || '').trim().toLowerCase() === pLower)) &&
+          m.status !== 'read' &&
+          m.status !== 'deleted'
+        );
+        if ((isTargetMsg || isPeerMsg) && m.status !== 'read') {
+          threadMutated = true;
+          mutated = true;
+          void patchMessage(m.id, { status: 'read', pending: false });
+          return { ...m, status: 'read' as const, pending: false };
+        }
+        return m;
+      });
+
+      updatedThreads[threadKey] = threadMutated ? nextMsgs : msgs;
+    }
+
+    if (mutated) {
+      set({ threads: updatedThreads });
     }
   },
 

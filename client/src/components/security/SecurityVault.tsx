@@ -91,16 +91,16 @@ export function SecurityVault() {
 
         <GlassPanel radius="lg" className="space-y-4 border-[color-mix(in_srgb,var(--danger)_35%,transparent)]">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-red-500/10 border border-red-500/20 text-red-400">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-red-500/10 border border-red-500/20 text-red-500">
               <Trash2 size={18} />
             </div>
             <div>
-              <p className="text-[15px] font-semibold tracking-[-0.02em] text-[var(--danger)]">Danger zone</p>
-              <p className="text-[12.5px] text-[var(--text-2)]">Permanently delete this identity and everything in it.</p>
+              <p className="text-[15px] font-semibold tracking-[-0.02em] text-[var(--danger)]">Emergency Vault Shredder</p>
+              <p className="text-[12.5px] text-[var(--text-2)]">Irreversibly shred this identity, local cryptographic vault, and server queues.</p>
             </div>
           </div>
           <Button variant="danger" className="w-full" onClick={() => openOverlay('burn')}>
-            <Trash2 size={16} /> Delete identity
+            <Trash2 size={16} /> Shred Identity & Purge Vault
           </Button>
         </GlassPanel>
 
@@ -176,8 +176,8 @@ export function BurnConfirmDialog({ open, onClose }: { open: boolean; onClose: (
       open={open}
       onClose={onClose}
       tone="danger"
-      title="Delete this identity"
-      description="This deletes your keys, chat history, server records and contacts. It can't be undone — and there's no recovery without your phrase."
+      title="Emergency Vault Shredder"
+      description="This immediately wipes your private keys, local IndexedDB vaults, and server relay queues. This action is irreversible and leaves zero traces behind."
     >
       <div className="space-y-3">
         <ul className="space-y-2 text-[13px] text-[var(--text-2)]">

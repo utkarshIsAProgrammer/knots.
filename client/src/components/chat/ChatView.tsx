@@ -67,11 +67,22 @@ export function ChatView() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
 
+  const hasUnread = useMemo(() => {
+    const meLower = (myKnotId || '').trim().toLowerCase();
+    return messages.some(
+      (m) =>
+        m.status !== 'read' &&
+        m.status !== 'deleted' &&
+        ((m.recipientId || '').trim().toLowerCase() === meLower ||
+          ((m.senderId || '').trim().toLowerCase() !== meLower && (m.senderId || '').trim().length > 0))
+    );
+  }, [messages, myKnotId]);
+
   useEffect(() => {
-    if (peer && myKnotId) {
+    if (peer && myKnotId && hasUnread) {
       void markRead(peer, myKnotId);
     }
-  }, [peer, myKnotId, markRead, messages.length]);
+  }, [peer, myKnotId, markRead, hasUnread]);
 
   if (!peer) {
     return (

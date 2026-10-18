@@ -63,6 +63,18 @@ function sendSseEvent(targetKnotId, eventData) {
   }
 }
 
+function makeIdQuery(id) {
+  if (!id) return { _id: id };
+  if (ObjectId.isValid(id)) {
+    try {
+      return { $or: [{ _id: id }, { _id: new ObjectId(id) }] };
+    } catch (e) {
+      return { _id: id };
+    }
+  }
+  return { _id: id };
+}
+
 async function connectMongo() {
   try {
     if (process.env.MONGODB_URI) {
@@ -664,12 +676,14 @@ app.post('/api/v1/x3dh-handshake', async (req, res) => {
 
 // ===== Message Delivery & Offline Queue =====
 app.post('/api/v1/message', async (req, res) => {
-  const { recipientKnotId, senderKnotId, ciphertext, nonce, tag, chainCounter, ttlSeconds, replyTo, type, sticker } = req.body;
+  const { recipientKnotId, senderKnotId, ciphertext, nonce, tag, chainCounter, ttlSeconds, replyTo, type, sticker, id, messageId: clientMsgId } = req.body;
   if (!recipientKnotId || !ciphertext || !senderKnotId) {
     return res.status(400).json({ error: 'recipientKnotId, ciphertext, senderKnotId required' });
   }
 
   const parsedTtl = typeof ttlSeconds === 'number' ? ttlSeconds : 86400;
+  const assignedId = id || clientMsgId || null;
+
   const messageDoc = {
     recipient_knot_id: recipientKnotId,
     sender_knot_id: senderKnotId,
@@ -686,14 +700,17 @@ app.post('/api/v1/message', async (req, res) => {
     expires_at: parsedTtl > 0 ? new Date(Date.now() + parsedTtl * 1000) : null,
     status: 'queued'
   };
+  if (assignedId) {
+    messageDoc._id = assignedId;
+  }
 
   try {
     let messageId;
     if (offlineQueueCollection) {
       const result = await offlineQueueCollection.insertOne(messageDoc);
-      messageId = result.insertedId;
+      messageId = assignedId || result.insertedId;
     } else {
-      messageId = Date.now().toString();
+      messageId = assignedId || Date.now().toString();
       messageDoc._id = messageId;
       memoryStore.messages.push(messageDoc);
     }
@@ -753,8 +770,7 @@ app.post('/api/v1/messages/:id/read', async (req, res) => {
   try {
     let senderKnotId = null;
     if (offlineQueueCollection) {
-      let query = {};
-      try { query = { _id: new ObjectId(id) }; } catch (e) { query = { _id: id }; }
+      const query = makeIdQuery(id);
       const msg = await offlineQueueCollection.findOne(query);
       if (msg) senderKnotId = msg.sender_knot_id;
       await offlineQueueCollection.updateOne(query, { $set: { status: 'read', read_at: new Date() } });
@@ -808,13 +824,13 @@ app.get('/api/v1/messages/sent-status/:senderKnotId', async (req, res) => {
       const rx = { $regex: new RegExp(`^${escapeRegex(senderKnotId.trim())}$`, 'i') };
       sentStatuses = await offlineQueueCollection.find(
         { sender_knot_id: rx },
-        { projection: { _id: 1, recipient_knot_id: 1, status: 1, read_at: 1, reactions: 1, edited: 1, edited_at: 1, ciphertext: 1, nonce: 1, tag: 1, expires_at: 1, ttlSeconds: 1 } }
+        { projection: { _id: 1, recipient_knot_id: 1, sender_knot_id: 1, created_at: 1, status: 1, read_at: 1, reactions: 1, edited: 1, edited_at: 1, ciphertext: 1, nonce: 1, tag: 1, expires_at: 1, ttlSeconds: 1, type: 1, sticker: 1, reply_to: 1 } }
       ).toArray();
     } else {
       const sLower = (senderKnotId || '').trim().toLowerCase();
       sentStatuses = memoryStore.messages
         .filter(m => (m.sender_knot_id || '').toLowerCase() === sLower)
-        .map(m => ({ _id: m._id, recipient_knot_id: m.recipient_knot_id, status: m.status, reactions: m.reactions, edited: m.edited, ciphertext: m.ciphertext, nonce: m.nonce, tag: m.tag, expires_at: m.expires_at, ttlSeconds: m.ttlSeconds }));
+        .map(m => ({ _id: m._id, recipient_knot_id: m.recipient_knot_id, sender_knot_id: m.sender_knot_id, created_at: m.created_at, status: m.status, reactions: m.reactions, edited: m.edited, ciphertext: m.ciphertext, nonce: m.nonce, tag: m.tag, expires_at: m.expires_at, ttlSeconds: m.ttlSeconds, type: m.type, sticker: m.sticker, reply_to: m.reply_to }));
     }
     res.json({ success: true, statuses: sentStatuses });
   } catch (err) {
@@ -831,8 +847,7 @@ app.put('/api/v1/messages/:id/edit', async (req, res) => {
   try {
     let notifyRec = null;
     if (offlineQueueCollection) {
-      let query = {};
-      try { query = { _id: new ObjectId(id) }; } catch (e) { query = { _id: id }; }
+      const query = makeIdQuery(id);
       const msg = await offlineQueueCollection.findOne(query);
       if (!msg) return res.status(404).json({ error: 'Message not found' });
       if (senderKnotId && msg.sender_knot_id !== senderKnotId) {
@@ -878,8 +893,7 @@ app.delete('/api/v1/messages/:id', async (req, res) => {
     let notifyRec = null;
     let notifySend = null;
     if (offlineQueueCollection) {
-      let query = {};
-      try { query = { _id: new ObjectId(id) }; } catch (e) { query = { _id: id }; }
+      const query = makeIdQuery(id);
       const existing = await offlineQueueCollection.findOne(query);
       if (existing) {
         notifyRec = existing.recipient_knot_id;
@@ -955,8 +969,7 @@ app.post('/api/v1/messages/:id/react', async (req, res) => {
     let notifyRec = null;
     let notifySend = null;
     if (offlineQueueCollection) {
-      let query = {};
-      try { query = { _id: new ObjectId(id) }; } catch (e) { query = { _id: id }; }
+      const query = makeIdQuery(id);
       const msg = await offlineQueueCollection.findOne(query);
       if (msg) {
         notifyRec = msg.recipient_knot_id;
