@@ -10,7 +10,8 @@ import {
   Plus,
   Reply,
   RotateCcw,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { clockTime } from '../../lib/format';
@@ -35,8 +36,8 @@ export interface MessageBubbleProps {
 }
 
 function getMenuCoordinates(x: number, y: number, isOutgoing: boolean) {
-  const menuWidth = 260;
-  const menuHeight = 280;
+  const menuWidth = 280;
+  const menuHeight = 300;
   const pad = 12;
   const vw = typeof window !== 'undefined' ? window.innerWidth : 800;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 600;
@@ -98,6 +99,35 @@ function MessageBubbleComponent({
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [menu]);
+
+  // Dynamically adjust menu position so reaction tray and full picker are 100% visible on screen
+  useEffect(() => {
+    if (!menu || !menuContainerRef.current) return;
+    const el = menuContainerRef.current;
+    const rect = el.getBoundingClientRect();
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 800;
+    const vh = typeof window !== 'undefined' ? window.innerHeight : 600;
+    const pad = 12;
+
+    let deltaX = 0;
+    let deltaY = 0;
+
+    if (rect.right > vw - pad) {
+      deltaX = (vw - pad) - rect.right;
+    } else if (rect.left < pad) {
+      deltaX = pad - rect.left;
+    }
+
+    if (rect.bottom > vh - pad) {
+      deltaY = (vh - pad) - rect.bottom;
+    } else if (rect.top < pad) {
+      deltaY = pad - rect.top;
+    }
+
+    if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
+      setMenu((prev) => (prev ? { x: Math.round(prev.x + deltaX), y: Math.round(prev.y + deltaY) } : null));
+    }
+  }, [menu, showFullPicker]);
 
   const openMenu = (x: number, y: number) => {
     const coords = getMenuCoordinates(x, y, mine);
@@ -433,7 +463,7 @@ function MessageBubbleComponent({
                   <button
                     type="button"
                     onClick={() => setShowFullPicker((v) => !v)}
-                    title="More emojis"
+                    title={showFullPicker ? 'Back to actions' : 'More emojis'}
                     className={cn(
                       'ml-0.5 grid h-7 w-7 place-items-center rounded-md text-[12px] transition-colors cursor-pointer',
                       showFullPicker
@@ -441,7 +471,7 @@ function MessageBubbleComponent({
                         : 'bg-zinc-100 dark:bg-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-white/20 hover:text-black dark:hover:text-white'
                     )}
                   >
-                    <Plus size={13} />
+                    {showFullPicker ? <X size={13} /> : <Plus size={13} />}
                   </button>
                 </div>
               )}
@@ -461,92 +491,94 @@ function MessageBubbleComponent({
                 />
               )}
 
-              {/* 2. Action Menu List */}
-              <div className="flex w-52 flex-col gap-0.5 rounded-lg border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-[#000000] p-1.5 shadow-2xl backdrop-blur-xl">
-                {message.failed && onRetry && (
-                  <MenuItem
-                    icon={<RotateCcw size={15} className="text-red-500 animate-pulse" />}
-                    label="Retry sending"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRetry(message);
-                      setMenu(null);
-                    }}
-                  />
-                )}
-
-                {!deleted && (
-                  <MenuItem
-                    icon={<Reply size={15} className="text-zinc-600 dark:text-zinc-400" />}
-                    label="Reply"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onReply(message);
-                      setMenu(null);
-                    }}
-                  />
-                )}
-
-                {!deleted && onForward && (
-                  <MenuItem
-                    icon={<Forward size={15} className="text-zinc-600 dark:text-zinc-400" />}
-                    label="Forward message"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onForward(message);
-                      setMenu(null);
-                    }}
-                  />
-                )}
-
-                {message.plaintext && !deleted && message.type !== 'sticker' && (
-                  <MenuItem
-                    icon={
-                      copied ? (
-                        <Check size={15} className="text-emerald-600 dark:text-emerald-400" />
-                      ) : (
-                        <Copy size={15} className="text-zinc-600 dark:text-zinc-400" />
-                      )
-                    }
-                    label={copied ? 'Copied!' : 'Copy text'}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void copy();
-                      setTimeout(() => setMenu(null), 500);
-                    }}
-                  />
-                )}
-
-                {mine && !deleted && message.type === 'text' && (
-                  <MenuItem
-                    icon={<Pencil size={15} className="text-zinc-600 dark:text-zinc-400" />}
-                    label="Edit message"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEdit(message);
-                      setMenu(null);
-                    }}
-                  />
-                )}
-
-                {mine && (
-                  <>
-                    <div className="my-1 h-px bg-zinc-200 dark:bg-zinc-800" />
+              {/* 2. Action Menu List (only visible when not browsing full emojis) */}
+              {!showFullPicker && (
+                <div className="flex w-52 flex-col gap-0.5 rounded-lg border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-[#000000] p-1.5 shadow-2xl backdrop-blur-xl">
+                  {message.failed && onRetry && (
                     <MenuItem
-                      icon={<Trash2 size={15} className="text-red-600 dark:text-red-400" />}
-                      label="Delete for everyone"
-                      tone="danger"
+                      icon={<RotateCcw size={15} className="text-red-500 animate-pulse" />}
+                      label="Retry sending"
                       onClick={(e) => {
                         e.stopPropagation();
+                        onRetry(message);
                         setMenu(null);
-                        setTimeout(() => {
-                          onDelete(message);
-                        }, 50);
                       }}
                     />
-                  </>
-                )}
-              </div>
+                  )}
+
+                  {!deleted && (
+                    <MenuItem
+                      icon={<Reply size={15} className="text-zinc-600 dark:text-zinc-400" />}
+                      label="Reply"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onReply(message);
+                        setMenu(null);
+                      }}
+                    />
+                  )}
+
+                  {!deleted && onForward && (
+                    <MenuItem
+                      icon={<Forward size={15} className="text-zinc-600 dark:text-zinc-400" />}
+                      label="Forward message"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onForward(message);
+                        setMenu(null);
+                      }}
+                    />
+                  )}
+
+                  {message.plaintext && !deleted && message.type !== 'sticker' && (
+                    <MenuItem
+                      icon={
+                        copied ? (
+                          <Check size={15} className="text-emerald-600 dark:text-emerald-400" />
+                        ) : (
+                          <Copy size={15} className="text-zinc-600 dark:text-zinc-400" />
+                        )
+                      }
+                      label={copied ? 'Copied!' : 'Copy text'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void copy();
+                        setTimeout(() => setMenu(null), 500);
+                      }}
+                    />
+                  )}
+
+                  {mine && !deleted && message.type === 'text' && (
+                    <MenuItem
+                      icon={<Pencil size={15} className="text-zinc-600 dark:text-zinc-400" />}
+                      label="Edit message"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEdit(message);
+                        setMenu(null);
+                      }}
+                    />
+                  )}
+
+                  {mine && (
+                    <>
+                      <div className="my-1 h-px bg-zinc-200 dark:bg-zinc-800" />
+                      <MenuItem
+                        icon={<Trash2 size={15} className="text-red-600 dark:text-red-400" />}
+                        label="Delete for everyone"
+                        tone="danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenu(null);
+                          setTimeout(() => {
+                            onDelete(message);
+                          }, 50);
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>,
           document.body
