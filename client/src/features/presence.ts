@@ -37,28 +37,40 @@ export const usePresence = create<PresenceState>((set, get) => ({
     // 4s heartbeat to keep online status active (server timeout is 15s)
     heartbeat = setInterval(send, 4000);
 
-    // 1.2s poller for peer presence and typing indicators (blazing fast presence)
+    // 4s poller for peer presence fallback (SSE pushes typing events in realtime)
     poller = setInterval(async () => {
       if (!currentMe) return;
       const ids = peers();
       if (!ids.length) return;
-      const next: Record<string, Presence> = { ...get().peers };
+      const currentPeers = get().peers;
+      let changed = false;
+      const next: Record<string, Presence> = { ...currentPeers };
       await Promise.all(
         ids.map(async (id) => {
           try {
             const res = await api.getPresence(id, currentMe!);
-            next[id] = {
-              isOnline: res.isOnline,
-              lastSeen: res.lastSeen,
-              isTyping: res.isTyping
-            };
+            const cur = currentPeers[id];
+            if (!cur || cur.isOnline !== res.isOnline || cur.isTyping !== res.isTyping) {
+              changed = true;
+              next[id] = {
+                isOnline: res.isOnline,
+                lastSeen: res.lastSeen,
+                isTyping: res.isTyping
+              };
+            }
           } catch {
-            next[id] = { isOnline: false, lastSeen: get().peers[id]?.lastSeen ?? null, isTyping: false };
+            const cur = currentPeers[id];
+            if (!cur || cur.isOnline !== false || cur.isTyping !== false) {
+              changed = true;
+              next[id] = { isOnline: false, lastSeen: cur?.lastSeen ?? null, isTyping: false };
+            }
           }
         })
       );
-      set({ peers: next });
-    }, 1200);
+      if (changed) {
+        set({ peers: next });
+      }
+    }, 4000);
   },
 
   stop: () => {

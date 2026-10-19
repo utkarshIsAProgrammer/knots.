@@ -75,14 +75,22 @@ export function usePolling(callback: () => void, intervalMs: number, enabled = t
   }, [intervalMs, enabled]);
 }
 
+export interface VisualViewportState {
+  height: number;
+  offsetTop: number;
+}
+
 /**
- * Tracks the mobile visual viewport height (accounting for virtual keyboards on iOS/Android).
- * Returns the exact available height in pixels, or null if visualViewport is unsupported.
+ * Tracks the mobile visual viewport height and offsetTop (accounting for virtual keyboards on iOS/Android).
+ * Throttles state updates with requestAnimationFrame to prevent 60fps React render thrashing during keyboard open/close.
  */
-export function useVisualViewport() {
-  const [viewportHeight, setViewportHeight] = useState<number | null>(() => {
+export function useVisualViewport(): VisualViewportState | null {
+  const [viewport, setViewport] = useState<VisualViewportState | null>(() => {
     if (typeof window !== 'undefined' && window.visualViewport) {
-      return window.visualViewport.height;
+      return {
+        height: Math.round(window.visualViewport.height),
+        offsetTop: Math.round(window.visualViewport.offsetTop)
+      };
     }
     return null;
   });
@@ -90,20 +98,33 @@ export function useVisualViewport() {
   useEffect(() => {
     if (typeof window === 'undefined' || !window.visualViewport) return;
 
+    let rafId: number | null = null;
     const update = () => {
-      if (window.visualViewport) {
-        setViewportHeight(window.visualViewport.height);
-      }
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (window.visualViewport) {
+          const nextHeight = Math.round(window.visualViewport.height);
+          const nextOffset = Math.round(window.visualViewport.offsetTop);
+          setViewport((prev) => {
+            if (prev && prev.height === nextHeight && prev.offsetTop === nextOffset) {
+              return prev;
+            }
+            return { height: nextHeight, offsetTop: nextOffset };
+          });
+        }
+      });
     };
 
     window.visualViewport.addEventListener('resize', update);
     window.visualViewport.addEventListener('scroll', update);
 
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       window.visualViewport?.removeEventListener('resize', update);
       window.visualViewport?.removeEventListener('scroll', update);
     };
   }, []);
 
-  return viewportHeight;
+  return viewport;
 }

@@ -3,13 +3,31 @@ import { Flame } from 'lucide-react';
 import { burnCountdown } from '../../lib/format';
 import { cn } from '../../lib/cn';
 
+const listeners = new Set<() => void>();
+let globalTimer: ReturnType<typeof setInterval> | null = null;
+
+function subscribeTick(cb: () => void) {
+  listeners.add(cb);
+  if (!globalTimer) {
+    globalTimer = setInterval(() => {
+      for (const listener of listeners) listener();
+    }, 1000);
+  }
+  return () => {
+    listeners.delete(cb);
+    if (listeners.size === 0 && globalTimer) {
+      clearInterval(globalTimer);
+      globalTimer = null;
+    }
+  };
+}
+
 export function BurnChip({ expiresAt }: { expiresAt?: number | string | null }) {
   const [, force] = useState(0);
 
   useEffect(() => {
     if (!expiresAt) return;
-    const id = setInterval(() => force((n) => n + 1), 1000);
-    return () => clearInterval(id);
+    return subscribeTick(() => force((n) => (n + 1) % 10000));
   }, [expiresAt]);
 
   const label = burnCountdown(expiresAt);

@@ -100,11 +100,11 @@ class NotificationService {
     }
 
     // 4. Check if user is already actively reading this thread
-    const activeThread = useUI.getState().activeThread;
+    const activeThread = (useUI.getState().activeThread || '').trim().toLowerCase();
     if (
       document.visibilityState === 'visible' &&
       activeThread &&
-      activeThread.toLowerCase() === senderKey
+      activeThread === senderKey
     ) {
       return;
     }
@@ -124,6 +124,24 @@ class NotificationService {
         silent: false
       };
 
+      // Desktop PC/Mac browsers: Native Notification is instantaneous (<1ms)
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        try {
+          const n = new Notification(title, options);
+          n.onclick = () => {
+            try {
+              window.focus();
+            } catch {}
+            useUI.getState().openThread(cleanSender);
+            useUI.getState().setSection('chats');
+            n.close();
+          };
+          return;
+        } catch {
+          // Fall through to service worker registration if direct constructor isn't allowed
+        }
+      }
+
       // Mobile & Tablet: Android Chrome and iOS Safari require ServiceWorkerRegistration.showNotification
       if ('serviceWorker' in navigator) {
         const reg = await navigator.serviceWorker.getRegistration();
@@ -131,19 +149,6 @@ class NotificationService {
           await reg.showNotification(title, options);
           return;
         }
-      }
-
-      // Desktop browser fallback
-      if (typeof Notification !== 'undefined') {
-        const n = new Notification(title, options);
-        n.onclick = () => {
-          try {
-            window.focus();
-          } catch {}
-          useUI.getState().openThread(cleanSender);
-          useUI.getState().setSection('chats');
-          n.close();
-        };
       }
     } catch (e) {
       console.warn('Failed to display notification', e);

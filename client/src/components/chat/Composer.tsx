@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Flame, Send, Smile } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { ReplyStrip } from './ReplyStrip';
@@ -29,7 +29,7 @@ interface ComposerProps {
   disabled?: boolean;
 }
 
-export function Composer({
+function ComposerComponent({
   onSend,
   onTyping,
   onStopTyping,
@@ -171,6 +171,11 @@ export function Composer({
               }}
               className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-[#000000] text-[16px] sm:text-[14px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:border-zinc-400 dark:focus:border-white/30 transition-all px-3 py-2 resize-none max-h-[120px] overflow-x-hidden overflow-y-hidden no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden leading-relaxed select-text block break-words"
               style={{ minHeight: '38px', height: '38px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+              inputMode="text"
+              enterKeyHint="send"
+              autoComplete="off"
+              autoCorrect="on"
+              autoCapitalize="sentences"
             />
           </div>
         </div>
@@ -244,3 +249,5 @@ export function Composer({
     </div>
   );
 }
+
+export const Composer = memo(ComposerComponent);

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { memo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
 import { DateDivider } from './DateDivider';
@@ -11,18 +11,20 @@ interface MessageListProps {
   peer?: string;
   isTyping?: boolean;
   onReply: (message: StoredMessage) => void;
+  onForward?: (message: StoredMessage) => void;
   onEdit: (message: StoredMessage) => void;
   onDelete: (message: StoredMessage) => void;
   onReact: (message: StoredMessage, emoji: string) => void;
   onRetry?: (message: StoredMessage) => void;
 }
 
-export function MessageList({
+export const MessageList = memo(function MessageList({
   messages,
   me,
   peer,
   isTyping,
   onReply,
+  onForward,
   onEdit,
   onDelete,
   onReact,
@@ -39,11 +41,10 @@ export function MessageList({
           return (
             <motion.div
               key={message.id}
-              layout="position"
-              initial={{ opacity: 0, y: 10, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15 } }}
-              transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, transition: { duration: 0.1 } }}
+              transition={{ duration: 0.12 }}
             >
               {newDay && <DateDivider ts={message.createdAt} />}
               <div className={i > 0 && !newDay ? 'pt-4' : ''}>
@@ -52,6 +53,7 @@ export function MessageList({
                   mine={(message.senderId || '').trim().toLowerCase() === (me || '').trim().toLowerCase()}
                   me={me}
                   onReply={onReply}
+                  onForward={onForward}
                   onEdit={onEdit}
                   onDelete={onDelete}
                   onReact={onReact}
@@ -86,4 +88,4 @@ export function MessageList({
       <div ref={endRef} className="h-2" />
     </div>
   );
-}
+});

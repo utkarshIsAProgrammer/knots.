@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Bell, BellOff, Eraser, MoreVertical, Search, UserCheck, UserMinus, AlertCircle, RotateCcw } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
@@ -8,6 +8,7 @@ import { Popover, MenuItem } from '../ui/Popover';
 import { EmptyState } from '../ui/EmptyState';
 import { MessageList } from './MessageList';
 import { Composer } from './Composer';
+import { ForwardModal } from './ForwardModal';
 import { useChat } from '../../features/chat';
 import { useContacts } from '../../features/contacts';
 import { usePresence } from '../../features/presence';
@@ -64,6 +65,7 @@ export function ChatView() {
   const [confirmDelete, setConfirmDelete] = useState<StoredMessage | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmDeleteContact, setConfirmDeleteContact] = useState(false);
+  const [forwardMessage, setForwardMessage] = useState<StoredMessage | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -85,6 +87,88 @@ export function ChatView() {
     }
   }, [peer, myKnotId, markRead, hasUnread]);
 
+  const viewport = useVisualViewport();
+  const isDesktop = useIsDesktop();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const visible = query
+    ? messages.filter((m) => m.plaintext.toLowerCase().includes(query.toLowerCase()))
+    : messages;
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom(false);
+    return () => {
+      setTyping(null);
+    };
+  }, [peer, setTyping, scrollToBottom]);
+
+  useEffect(() => {
+    // If user is actively typing in the textarea, scroll instantly without animation
+    // to avoid mobile browser scroll interrupts that drop focus or dismiss the keyboard
+    const isUserTyping =
+      typeof document !== 'undefined' &&
+      document.activeElement &&
+      document.activeElement.tagName === 'TEXTAREA';
+
+    scrollToBottom(!isUserTyping);
+  }, [visible.length, presence?.isTyping, scrollToBottom]);
+
+  const handleSend = useCallback((
+    text: string,
+    options: { replyTo?: ReplyRef | null; ttlSeconds?: number; sticker?: string | null }
+  ) => {
+    if (!peer || !myKnotId) return;
+    void send(peer, { text, replyTo: options.replyTo, ttlSeconds: options.ttlSeconds, sticker: options.sticker, type: options.sticker ? 'sticker' : 'text' }, myKnotId);
+    setReplyTo(null);
+    setTyping(null);
+  }, [peer, myKnotId, send, setTyping]);
+
+  const handleReply = useCallback((m: StoredMessage) => {
+    setEditing(null);
+    setReplyTo({ id: m.id, text: m.plaintext.slice(0, 90), sender: m.senderId });
+  }, []);
+
+  const handleForward = useCallback((m: StoredMessage) => {
+    setForwardMessage(m);
+  }, []);
+
+  const handleForwardSubmit = useCallback(async (targetPeer: string, m: StoredMessage) => {
+    if (!myKnotId) return;
+    await send(targetPeer, {
+      text: m.plaintext,
+      sticker: m.sticker,
+      type: m.type,
+      ttlSeconds: 86400
+    }, myKnotId);
+    toast.success('Message forwarded');
+  }, [myKnotId, send]);
+
+  const handleEdit = useCallback((m: StoredMessage) => {
+    setReplyTo(null);
+    setEditing(m);
+  }, []);
+
+  const handleDelete = useCallback((m: StoredMessage) => {
+    setConfirmDelete(m);
+  }, []);
+
+  const handleReact = useCallback((m: StoredMessage, emoji: string) => {
+    if (myKnotId && peer) void toggleReaction(peer, m.id, emoji, myKnotId);
+  }, [myKnotId, peer, toggleReaction]);
+
+  const handleRetry = useCallback((m: StoredMessage) => {
+    if (myKnotId && peer) void retry(peer, m.id, myKnotId);
+  }, [myKnotId, peer, retry]);
+
   if (!peer) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -96,47 +180,18 @@ export function ChatView() {
   const name = contact?.alias || shortKnotId(peer);
   const subtitle = presence?.isOnline ? 'Active now' : 'Offline';
 
-  const visible = query
-    ? messages.filter((m) => m.plaintext.toLowerCase().includes(query.toLowerCase()))
-    : messages;
-
-  const handleSend = (
-    text: string,
-    options: { replyTo?: ReplyRef | null; ttlSeconds?: number; sticker?: string | null }
-  ) => {
-    if (!peer || !myKnotId) return;
-    void send(peer, { text, replyTo: options.replyTo, ttlSeconds: options.ttlSeconds, sticker: options.sticker, type: options.sticker ? 'sticker' : 'text' }, myKnotId);
-    setReplyTo(null);
-    setTyping(null);
-  };
-  const viewportHeight = useVisualViewport();
-  const isDesktop = useIsDesktop();
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  const scrollToBottom = (smooth = true) => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior: smooth ? 'smooth' : 'auto'
-    });
-  };
-
-  useEffect(() => {
-    scrollToBottom(false);
-    return () => {
-      setTyping(null);
-    };
-  }, [peer, setTyping]);
-
-  useEffect(() => {
-    scrollToBottom(true);
-  }, [visible.length, presence?.isTyping]);
-
   return (
     <div
-      className="fixed inset-x-0 top-0 z-30 flex flex-col bg-white dark:bg-[#000000] lg:static lg:h-full lg:z-auto overscroll-none"
-      style={!isDesktop && viewportHeight ? { height: `${viewportHeight}px`, maxHeight: `${viewportHeight}px` } : undefined}
+      className="fixed inset-x-0 z-30 flex flex-col bg-white dark:bg-[#000000] lg:static lg:h-full lg:z-auto overscroll-none"
+      style={
+        !isDesktop && viewport
+          ? {
+              top: `${viewport.offsetTop}px`,
+              height: `${viewport.height}px`,
+              maxHeight: `${viewport.height}px`
+            }
+          : { top: 0, height: '100%' }
+      }
     >
       <header className="relative z-20 flex items-center gap-2 sm:gap-3 border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#000000] px-3 py-2.5 sm:px-4 backdrop-blur-md">
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={closeThread} aria-label="Back">
@@ -242,21 +297,12 @@ export function ChatView() {
             me={myKnotId}
             peer={peer}
             isTyping={Boolean(presence?.isTyping)}
-            onReply={(m) => {
-              setEditing(null);
-              setReplyTo({ id: m.id, text: m.plaintext.slice(0, 90), sender: m.senderId });
-            }}
-            onEdit={(m) => {
-              setReplyTo(null);
-              setEditing(m);
-            }}
-            onDelete={(m) => setConfirmDelete(m)}
-            onReact={(m, emoji) => {
-              if (myKnotId) void toggleReaction(peer, m.id, emoji, myKnotId);
-            }}
-            onRetry={(m) => {
-              if (myKnotId) void retry(peer, m.id, myKnotId);
-            }}
+            onReply={handleReply}
+            onForward={handleForward}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onReact={handleReact}
+            onRetry={handleRetry}
           />
         )}
       </div>
@@ -297,6 +343,15 @@ export function ChatView() {
           setEditing(null);
         }}
         me={myKnotId}
+      />
+
+      {/* Forward Message Modal */}
+      <ForwardModal
+        open={Boolean(forwardMessage)}
+        message={forwardMessage}
+        me={myKnotId}
+        onClose={() => setForwardMessage(null)}
+        onForward={handleForwardSubmit}
       />
 
       {/* Delete Single Message Dialog */}

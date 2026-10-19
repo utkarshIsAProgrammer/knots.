@@ -1,34 +1,33 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion } from 'framer-motion';
 import {
   Check,
   CheckCheck,
   Copy,
+  Forward,
   Loader2,
   Pencil,
   Plus,
   Reply,
   RotateCcw,
-  Search,
-  Trash2,
-  X
+  Trash2
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { clockTime } from '../../lib/format';
 import type { StoredMessage } from '../../lib/storage/db';
 import { BurnChip } from './BurnChip';
 import { ReactionPill } from './ReactionPill';
+import { FullReactionPicker } from './FullReactionPicker';
 import { toast } from '../../features/toast';
-import { ALL_EMOJIS } from '../../lib/emojis';
 
 const QUICK_REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
 
-interface MessageBubbleProps {
+export interface MessageBubbleProps {
   message: StoredMessage;
   mine: boolean;
   me: string;
   onReply: (message: StoredMessage) => void;
+  onForward?: (message: StoredMessage) => void;
   onEdit: (message: StoredMessage) => void;
   onDelete: (message: StoredMessage) => void;
   onReact: (message: StoredMessage, emoji: string) => void;
@@ -37,8 +36,8 @@ interface MessageBubbleProps {
 
 function getMenuCoordinates(x: number, y: number, isOutgoing: boolean) {
   const menuWidth = 260;
-  const menuHeight = 270;
-  const pad = 16;
+  const menuHeight = 280;
+  const pad = 12;
   const vw = typeof window !== 'undefined' ? window.innerWidth : 800;
   const vh = typeof window !== 'undefined' ? window.innerHeight : 600;
 
@@ -54,17 +53,18 @@ function getMenuCoordinates(x: number, y: number, isOutgoing: boolean) {
   } else if (spaceAbove >= menuHeight + 20) {
     posY = y - menuHeight - 10;
   } else {
-    posY = Math.max(pad, Math.min(y - 130, vh - menuHeight - pad));
+    posY = Math.max(pad, Math.min(y - 140, vh - menuHeight - pad));
   }
 
   return { posX, posY };
 }
 
-export function MessageBubble({
+function MessageBubbleComponent({
   message,
   mine,
   me,
   onReply,
+  onForward,
   onEdit,
   onDelete,
   onReact,
@@ -72,45 +72,31 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [showFullPicker, setShowFullPicker] = useState(false);
-  const [pickerSearch, setPickerSearch] = useState('');
   const [copied, setCopied] = useState(false);
-  const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
-  const menuContainerRef = useRef<HTMLDivElement>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+  const [isSwiping, setIsSwiping] = useState(false);
 
-  const reactionEmojis = useMemo(() => {
-    if (!pickerSearch.trim()) return ALL_EMOJIS;
-    const q = pickerSearch.trim().toLowerCase();
-    return ALL_EMOJIS.filter(
-      (e) => e.name.toLowerCase().includes(q) || e.emoji === q || e.keywords.some((k) => k.toLowerCase().includes(q))
-    );
-  }, [pickerSearch]);
+  const longPress = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStart = useRef<{ x: number; y: number; time: number } | null>(null);
+  const hasTriggeredSwipeHaptic = useRef(false);
+  const menuContainerRef = useRef<HTMLDivElement>(null);
 
   const deleted = message.status === 'deleted';
   const stickerSrc = message.sticker || (message.type === 'sticker' ? message.plaintext : null);
   const sticker = message.type === 'sticker' && Boolean(stickerSrc);
 
+  // Close context menu on Esc or outside click
   useEffect(() => {
     if (!menu) return;
     const close = () => {
       setMenu(null);
       setShowFullPicker(false);
     };
-    const handleScroll = (e: Event) => {
-      if (menuContainerRef.current && menuContainerRef.current.contains(e.target as Node)) {
-        return;
-      }
-      close();
-    };
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
     };
-    window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('keydown', handleKey);
-    return () => {
-      window.removeEventListener('scroll', handleScroll, true);
-      window.removeEventListener('keydown', handleKey);
-    };
+    return () => window.removeEventListener('keydown', handleKey);
   }, [menu]);
 
   const openMenu = (x: number, y: number) => {
@@ -126,27 +112,65 @@ export function MessageBubble({
     setTimeout(() => setCopied(false), 1400);
   };
 
+  // High-performance native touch gesture handling: swipe-to-reply + snappy long press
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
-    touchStart.current = { x: t.clientX, y: t.clientY };
+    touchStart.current = { x: t.clientX, y: t.clientY, time: Date.now() };
+    hasTriggeredSwipeHaptic.current = false;
+    setIsSwiping(false);
+
     if (longPress.current) clearTimeout(longPress.current);
     longPress.current = setTimeout(() => {
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
         try {
-          navigator.vibrate(35);
+          navigator.vibrate(25);
         } catch {}
       }
       openMenu(t.clientX, t.clientY);
-    }, 420);
+    }, 300);
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (!touchStart.current) return;
     const t = e.touches[0];
-    const dist = Math.hypot(t.clientX - touchStart.current.x, t.clientY - touchStart.current.y);
-    if (dist > 8 && longPress.current) {
-      clearTimeout(longPress.current);
-      longPress.current = null;
+    const dx = t.clientX - touchStart.current.x;
+    const dy = t.clientY - touchStart.current.y;
+
+    // If movement is mostly vertical, it's a scroll: cancel long press and don't swipe
+    if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) {
+      if (longPress.current) {
+        clearTimeout(longPress.current);
+        longPress.current = null;
+      }
+      if (swipeOffset !== 0) {
+        setSwipeOffset(0);
+        setIsSwiping(false);
+      }
+      return;
+    }
+
+    // Horizontal swipe-to-reply gesture
+    if (Math.abs(dx) > 10) {
+      if (longPress.current) {
+        clearTimeout(longPress.current);
+        longPress.current = null;
+      }
+      setIsSwiping(true);
+
+      // Elastic rubberbanding (swiping left for incoming or mine, or swiping right for mine)
+      const direction = dx < 0 ? -1 : 1;
+      const rawDistance = Math.abs(dx);
+      const elastic = Math.min(rawDistance * 0.45, 65) * direction;
+      setSwipeOffset(elastic);
+
+      if (Math.abs(elastic) >= 36 && !hasTriggeredSwipeHaptic.current) {
+        hasTriggeredSwipeHaptic.current = true;
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          try {
+            navigator.vibrate(15);
+          } catch {}
+        }
+      }
     }
   };
 
@@ -155,18 +179,19 @@ export function MessageBubble({
       clearTimeout(longPress.current);
       longPress.current = null;
     }
+
+    if (Math.abs(swipeOffset) >= 36) {
+      onReply(message);
+    }
+
+    setSwipeOffset(0);
+    setIsSwiping(false);
+    touchStart.current = null;
   };
 
   return (
     <>
-      <motion.div
-        drag="x"
-        dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.35}
-        dragSnapToOrigin
-        onDragEnd={(_, info) => {
-          if (Math.abs(info.offset.x) > 45) onReply(message);
-        }}
+      <div
         onContextMenu={(e) => {
           e.preventDefault();
           openMenu(e.clientX, e.clientY);
@@ -174,12 +199,39 @@ export function MessageBubble({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className={cn('group relative flex w-full', mine ? 'justify-end' : 'justify-start')}
+        onTouchCancel={handleTouchEnd}
+        className={cn('group relative flex w-full select-none touch-pan-y', mine ? 'justify-end' : 'justify-start')}
       >
-        <div className={cn('relative max-w-[82%] sm:max-w-[68%]', deleted && 'opacity-60', !deleted && (message.reactions?.length ?? 0) > 0 && 'mb-3')}>
+        {/* Swipe-to-reply visual indicator */}
+        {swipeOffset !== 0 && (
+          <div
+            className={cn(
+              'pointer-events-none absolute top-1/2 -translate-y-1/2 flex items-center justify-center transition-opacity duration-150',
+              mine ? 'right-2' : 'left-2',
+              Math.abs(swipeOffset) >= 36 ? 'opacity-100 scale-110' : 'opacity-40 scale-90'
+            )}
+          >
+            <div className="grid h-7 w-7 place-items-center rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 shadow-md">
+              <Reply size={14} className={mine ? '' : '-scale-x-100'} />
+            </div>
+          </div>
+        )}
+
+        <div
+          style={{
+            transform: swipeOffset ? `translate3d(${swipeOffset}px, 0, 0)` : undefined,
+            transition: isSwiping ? 'none' : 'transform 0.22s cubic-bezier(0.2, 0.9, 0.4, 1.1)'
+          }}
+          className={cn(
+            'relative max-w-[84%] sm:max-w-[70%]',
+            deleted && 'opacity-60',
+            !deleted && (message.reactions?.length ?? 0) > 0 && 'mb-3'
+          )}
+        >
           {sticker ? (
             <div className="flex flex-col items-end">
               <button
+                type="button"
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
                   openMenu(r.left + r.width / 2, r.top + r.height / 2);
@@ -202,47 +254,11 @@ export function MessageBubble({
                 )}
               </button>
               <div className="mt-1 flex items-center gap-1.5 px-1 text-[10px] text-zinc-500">
-                {message.expiresAt && !message.pending && !message.failed && !deleted && <BurnChip expiresAt={message.expiresAt} />}
-                <TimeStamp ts={message.createdAt} />
-                {mine && (
-                  <span
-                    title={
-                      message.failed
-                        ? 'Failed'
-                        : message.pending
-                          ? 'Sending…'
-                          : message.status === 'read'
-                            ? 'Read'
-                            : message.status === 'delivered'
-                              ? 'Delivered'
-                              : 'Sent'
-                    }
-                    className="inline-flex items-center ml-0.5"
-                  >
-                    {message.failed ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRetry?.(message);
-                        }}
-                        className="inline-flex items-center gap-1 rounded bg-red-500/15 hover:bg-red-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-red-500 transition-colors cursor-pointer"
-                        title="Retry sending"
-                      >
-                        <RotateCcw size={11} className="shrink-0 text-red-500" />
-                        <span>Retry</span>
-                      </button>
-                    ) : message.pending ? (
-                      <Loader2 size={13} className="shrink-0 animate-spin text-zinc-400" />
-                    ) : message.status === 'read' ? (
-                      <CheckCheck size={16} strokeWidth={2.4} className="shrink-0 text-[#0284c7] dark:text-[#38bdf8]" />
-                    ) : message.status === 'delivered' ? (
-                      <CheckCheck size={16} strokeWidth={2.2} className="shrink-0 text-zinc-600 dark:text-zinc-400" />
-                    ) : (
-                      <Check size={15} strokeWidth={2.2} className="shrink-0 text-zinc-600 dark:text-zinc-400" />
-                    )}
-                  </span>
+                {message.expiresAt && !message.pending && !message.failed && !deleted && (
+                  <BurnChip expiresAt={message.expiresAt} />
                 )}
+                <TimeStamp ts={message.createdAt} />
+                {mine && <StatusIndicator message={message} onRetry={onRetry} />}
               </div>
             </div>
           ) : (
@@ -273,7 +289,9 @@ export function MessageBubble({
                             ? 'You'
                             : `${(message.replyTo.sender || '').slice(0, 14)}…`}
                         </p>
-                        <p className="truncate text-[12px] text-zinc-800 dark:text-zinc-300 font-normal">{message.replyTo.text}</p>
+                        <p className="truncate text-[12px] text-zinc-800 dark:text-zinc-300 font-normal">
+                          {message.replyTo.text}
+                        </p>
                       </div>
                     </div>
                   )}
@@ -281,56 +299,18 @@ export function MessageBubble({
                 </>
               )}
 
-              <div
-                className="mt-1.5 flex items-center justify-end gap-1.5 text-[10.5px] text-zinc-500 dark:text-zinc-400 font-mono"
-              >
+              <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[10.5px] text-zinc-500 dark:text-zinc-400 font-mono">
                 {message.edited && !deleted && <span className="italic font-sans text-zinc-400">edited</span>}
-                {message.expiresAt && !message.pending && !message.failed && !deleted && <BurnChip expiresAt={message.expiresAt} />}
-                <TimeStamp ts={message.createdAt} />
-                {mine && (
-                  <span
-                    title={
-                      message.failed
-                        ? 'Failed'
-                        : message.pending
-                          ? 'Sending…'
-                          : message.status === 'read'
-                            ? 'Read'
-                            : message.status === 'delivered'
-                              ? 'Delivered'
-                              : 'Sent'
-                    }
-                    className="inline-flex items-center ml-0.5"
-                  >
-                    {message.failed ? (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRetry?.(message);
-                        }}
-                        className="inline-flex items-center gap-1 rounded bg-red-500/15 hover:bg-red-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-red-500 transition-colors cursor-pointer"
-                        title="Retry sending"
-                      >
-                        <RotateCcw size={11} className="shrink-0 text-red-500" />
-                        <span>Retry</span>
-                      </button>
-                    ) : message.pending ? (
-                      <Loader2 size={13} className="shrink-0 animate-spin text-zinc-400" />
-                    ) : message.status === 'read' ? (
-                      <CheckCheck size={16} strokeWidth={2.4} className="shrink-0 text-[#0284c7] dark:text-[#38bdf8]" />
-                    ) : message.status === 'delivered' ? (
-                      <CheckCheck size={16} strokeWidth={2.2} className="shrink-0 text-zinc-600 dark:text-zinc-400" />
-                    ) : (
-                      <Check size={15} strokeWidth={2.2} className="shrink-0 text-zinc-600 dark:text-zinc-400" />
-                    )}
-                  </span>
+                {message.expiresAt && !message.pending && !message.failed && !deleted && (
+                  <BurnChip expiresAt={message.expiresAt} />
                 )}
+                <TimeStamp ts={message.createdAt} />
+                {mine && <StatusIndicator message={message} onRetry={onRetry} />}
               </div>
             </div>
           )}
 
-          {/* Quick Hover Action Bar (Desktop) */}
+          {/* Quick Hover Action Bar (Desktop only) */}
           {!deleted && (
             <div
               className={cn(
@@ -356,6 +336,16 @@ export function MessageBubble({
               >
                 <Reply size={13} />
               </button>
+              {onForward && (
+                <button
+                  type="button"
+                  onClick={() => onForward(message)}
+                  title="Forward"
+                  className="grid h-6 w-6 place-items-center rounded text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-white transition-colors"
+                >
+                  <Forward size={13} />
+                </button>
+              )}
               {message.plaintext && message.type !== 'sticker' && (
                 <button
                   type="button"
@@ -391,13 +381,13 @@ export function MessageBubble({
             />
           )}
         </div>
-      </motion.div>
+      </div>
 
-      {/* Boxy Context Menu Overlay modeled after Orbit */}
+      {/* Context Menu Overlay */}
       {menu &&
         createPortal(
           <div
-            className="fixed inset-0 z-[1000] flex bg-black/20 dark:bg-black/60 select-none animate-fadeIn"
+            className="fixed inset-0 z-[1000] flex bg-black/25 dark:bg-black/60 select-none animate-fadeIn"
             onClick={(e) => {
               e.stopPropagation();
               setMenu(null);
@@ -415,7 +405,7 @@ export function MessageBubble({
               className="flex flex-col gap-1.5 animate-scaleUp z-[1001]"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* 1. Quick Reaction Bar (Top) */}
+              {/* 1. Quick Reaction Bar */}
               {!deleted && (
                 <div className="flex items-center gap-1 rounded-lg border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-[#000000] px-2 py-1 shadow-2xl backdrop-blur-xl">
                   {QUICK_REACTIONS.map((emoji) => {
@@ -432,7 +422,7 @@ export function MessageBubble({
                           setShowFullPicker(false);
                         }}
                         className={cn(
-                          'grid h-8 w-8 place-items-center rounded-md text-[16px] transition-transform hover:scale-115 hover:bg-zinc-100 dark:hover:bg-white/10 active:scale-95',
+                          'grid h-8 w-8 place-items-center rounded-md text-[16px] transition-transform hover:scale-115 hover:bg-zinc-100 dark:hover:bg-white/10 active:scale-95 cursor-pointer',
                           isSelected && 'bg-zinc-200 dark:bg-white/20 ring-1 ring-zinc-400 dark:ring-white/30'
                         )}
                       >
@@ -445,7 +435,7 @@ export function MessageBubble({
                     onClick={() => setShowFullPicker((v) => !v)}
                     title="More emojis"
                     className={cn(
-                      'ml-0.5 grid h-7 w-7 place-items-center rounded-md text-[12px] transition-colors',
+                      'ml-0.5 grid h-7 w-7 place-items-center rounded-md text-[12px] transition-colors cursor-pointer',
                       showFullPicker
                         ? 'bg-zinc-900 text-white dark:bg-white dark:text-black font-semibold'
                         : 'bg-zinc-100 dark:bg-white/10 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-white/20 hover:text-black dark:hover:text-white'
@@ -456,51 +446,22 @@ export function MessageBubble({
                 </div>
               )}
 
-              {/* Full Emoji Picker Drawer if "+" clicked */}
+              {/* Full Emoji Picker on demand */}
               {showFullPicker && (
-                <div className="flex w-72 max-h-64 flex-col gap-1.5 overflow-hidden rounded-lg border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-[#000000] p-2 shadow-2xl backdrop-blur-xl animate-scaleUp">
-                  <div className="relative flex items-center">
-                    <Search size={13} className="pointer-events-none absolute left-2 text-zinc-400 dark:text-zinc-500" />
-                    <input
-                      type="text"
-                      value={pickerSearch}
-                      onChange={(e) => setPickerSearch(e.target.value)}
-                      placeholder="Search all emojis…"
-                      autoFocus
-                      className="h-7 w-full rounded-md bg-zinc-100 dark:bg-zinc-950 pl-7 pr-6 text-[12px] text-zinc-900 dark:text-white outline-none placeholder:text-zinc-400 dark:placeholder:text-zinc-500 border border-zinc-300 dark:border-zinc-800 focus:border-zinc-500 dark:focus:border-zinc-600"
-                    />
-                    {pickerSearch && (
-                      <button
-                        type="button"
-                        onClick={() => setPickerSearch('')}
-                        className="absolute right-1.5 grid h-4 w-4 place-items-center text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
-                      >
-                        <X size={11} />
-                      </button>
-                    )}
-                  </div>
-                  <div className="no-scrollbar grid max-h-52 grid-cols-7 gap-1 overflow-y-auto p-0.5 touch-pan-y overscroll-contain">
-                    {reactionEmojis.map((item) => (
-                      <button
-                        key={`${item.emoji}-${item.name}`}
-                        type="button"
-                        onClick={() => {
-                          onReact(message, item.emoji);
-                          setMenu(null);
-                          setShowFullPicker(false);
-                          setPickerSearch('');
-                        }}
-                        title={item.name}
-                        className="grid h-8 w-8 place-items-center rounded-md text-[18px] transition-transform hover:scale-120 hover:bg-zinc-100 dark:hover:bg-white/10 active:scale-90"
-                      >
-                        {item.emoji}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <FullReactionPicker
+                  onSelect={(emoji) => {
+                    onReact(message, emoji);
+                    setMenu(null);
+                    setShowFullPicker(false);
+                  }}
+                  onClose={() => {
+                    setMenu(null);
+                    setShowFullPicker(false);
+                  }}
+                />
               )}
 
-              {/* 2. Action Menu List Card (Below) */}
+              {/* 2. Action Menu List */}
               <div className="flex w-52 flex-col gap-0.5 rounded-lg border border-zinc-300 dark:border-zinc-800 bg-white dark:bg-[#000000] p-1.5 shadow-2xl backdrop-blur-xl">
                 {message.failed && onRetry && (
                   <MenuItem
@@ -526,14 +487,32 @@ export function MessageBubble({
                   />
                 )}
 
+                {!deleted && onForward && (
+                  <MenuItem
+                    icon={<Forward size={15} className="text-zinc-600 dark:text-zinc-400" />}
+                    label="Forward message"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onForward(message);
+                      setMenu(null);
+                    }}
+                  />
+                )}
+
                 {message.plaintext && !deleted && message.type !== 'sticker' && (
                   <MenuItem
-                    icon={copied ? <Check size={15} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={15} className="text-zinc-600 dark:text-zinc-400" />}
+                    icon={
+                      copied ? (
+                        <Check size={15} className="text-emerald-600 dark:text-emerald-400" />
+                      ) : (
+                        <Copy size={15} className="text-zinc-600 dark:text-zinc-400" />
+                      )
+                    }
                     label={copied ? 'Copied!' : 'Copy text'}
                     onClick={(e) => {
                       e.stopPropagation();
                       void copy();
-                      setTimeout(() => setMenu(null), 600);
+                      setTimeout(() => setMenu(null), 500);
                     }}
                   />
                 )}
@@ -562,7 +541,7 @@ export function MessageBubble({
                         setMenu(null);
                         setTimeout(() => {
                           onDelete(message);
-                        }, 60);
+                        }, 50);
                       }}
                     />
                   </>
@@ -573,6 +552,54 @@ export function MessageBubble({
           document.body
         )}
     </>
+  );
+}
+
+function StatusIndicator({
+  message,
+  onRetry
+}: {
+  message: StoredMessage;
+  onRetry?: (message: StoredMessage) => void;
+}) {
+  return (
+    <span
+      title={
+        message.failed
+          ? 'Failed'
+          : message.pending
+            ? 'Sending…'
+            : message.status === 'read'
+              ? 'Read'
+              : message.status === 'delivered'
+                ? 'Delivered'
+                : 'Sent'
+      }
+      className="inline-flex items-center ml-0.5"
+    >
+      {message.failed ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRetry?.(message);
+          }}
+          className="inline-flex items-center gap-1 rounded bg-red-500/15 hover:bg-red-500/25 px-1.5 py-0.5 text-[10px] font-semibold text-red-500 transition-colors cursor-pointer"
+          title="Retry sending"
+        >
+          <RotateCcw size={11} className="shrink-0 text-red-500" />
+          <span>Retry</span>
+        </button>
+      ) : message.pending ? (
+        <Loader2 size={13} className="shrink-0 animate-spin text-zinc-400" />
+      ) : message.status === 'read' ? (
+        <CheckCheck size={16} strokeWidth={2.4} className="shrink-0 text-[#0284c7] dark:text-[#38bdf8]" />
+      ) : message.status === 'delivered' ? (
+        <CheckCheck size={16} strokeWidth={2.2} className="shrink-0 text-zinc-600 dark:text-zinc-400" />
+      ) : (
+        <Check size={15} strokeWidth={2.2} className="shrink-0 text-zinc-600 dark:text-zinc-400" />
+      )}
+    </span>
   );
 }
 
@@ -600,7 +627,7 @@ function MenuItem({
         onClick(e);
       }}
       className={cn(
-        'group flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-[13px] font-medium transition-colors select-none',
+        'group flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-[13px] font-medium transition-colors select-none cursor-pointer',
         tone === 'danger'
           ? 'text-red-600 dark:text-red-400 hover:bg-red-500/10 dark:hover:bg-red-500/15'
           : 'text-zinc-900 dark:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/80 hover:text-black dark:hover:text-white'
@@ -611,3 +638,49 @@ function MenuItem({
     </button>
   );
 }
+
+function areReactionsEqual(
+  a?: StoredMessage['reactions'],
+  b?: StoredMessage['reactions']
+): boolean {
+  if (a === b) return true;
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].emoji !== b[i].emoji || a[i].knotId !== b[i].knotId) return false;
+  }
+  return true;
+}
+
+function areReplyToEqual(
+  a?: StoredMessage['replyTo'],
+  b?: StoredMessage['replyTo']
+): boolean {
+  if (a === b) return true;
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return a.id === b.id && a.text === b.text && a.sender === b.sender;
+}
+
+/**
+ * Custom memo comparison ensures that in a thread of 100+ messages,
+ * only the messages that actually mutated will re-render, giving native 60-120fps performance.
+ */
+export const MessageBubble = memo(MessageBubbleComponent, (prev, next) => {
+  return (
+    prev.mine === next.mine &&
+    prev.me === next.me &&
+    prev.message.id === next.message.id &&
+    prev.message.status === next.message.status &&
+    prev.message.plaintext === next.message.plaintext &&
+    prev.message.edited === next.message.edited &&
+    prev.message.failed === next.message.failed &&
+    prev.message.pending === next.message.pending &&
+    prev.message.expiresAt === next.message.expiresAt &&
+    prev.message.type === next.message.type &&
+    prev.message.sticker === next.message.sticker &&
+    areReactionsEqual(prev.message.reactions, next.message.reactions) &&
+    areReplyToEqual(prev.message.replyTo, next.message.replyTo)
+  );
+});

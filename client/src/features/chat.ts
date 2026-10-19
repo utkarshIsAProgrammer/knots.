@@ -157,7 +157,8 @@ export const useChat = create<ChatState>((set, get) => ({
       isRefreshing = false;
       return;
     }
-    set({ loading: true });
+    const isInitial = Object.keys(get().threads).length === 0;
+    if (isInitial) set({ loading: true });
     try {
       const inMemory = Object.values(get().threads).flat();
       const existingAll = inMemory.length > 0 ? inMemory : await loadAllMessages();
@@ -316,7 +317,7 @@ export const useChat = create<ChatState>((set, get) => ({
       // Offline: keep showing the local vault.
     } finally {
       isRefreshing = false;
-      set({ loading: false });
+      if (isInitial) set({ loading: false });
     }
   },
 

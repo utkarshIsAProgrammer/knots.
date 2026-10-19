@@ -54,7 +54,7 @@ export default function App() {
     const burnInterval = setInterval(() => {
       void sweepExpired().then((swept) => {
         if (swept > 0) {
-          void useChat.getState().bootstrap();
+          void useChat.getState().refresh();
         }
       });
     }, 1000);
@@ -141,12 +141,12 @@ export default function App() {
     };
   }, [knotId]);
 
-  // Adaptive fallback poller: 800ms when tab active, 3000ms when hidden/idle
-  const [pollInterval, setPollInterval] = useState(800);
+  // Relaxed background fallback poller (SSE provides <10ms instant push; poller is just a safety net)
+  const [pollInterval, setPollInterval] = useState(15000);
   useEffect(() => {
     const handleVisibility = () => {
       const isHidden = document.hidden;
-      setPollInterval(isHidden ? 3000 : 800);
+      setPollInterval(isHidden ? 30000 : 15000);
       if (!isHidden && knotId) {
         void useChat.getState().refresh();
       }
@@ -160,7 +160,6 @@ export default function App() {
       if (!useIdentity.getState().identity) return;
       void useChat.getState().refresh();
       void useContacts.getState().load();
-      void useIdentity.getState().refreshRelay();
     },
     pollInterval,
     !!knotId
