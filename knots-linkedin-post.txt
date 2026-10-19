@@ -1,0 +1,17 @@
+🚀 Introducing Knots: Sovereign Zero-Knowledge Anonymous Relayer
+
+Most messenger apps hoard data behind their walls. Knots is built differently — it's a zero-knowledge, privacy-first messaging platform where you own the keys, and the server remains blind.
+
+🔐 End-to-end encrypted by default — your messages never leave your device as plaintext. Only ciphertext travels over the network.
+👁 Burn-on-read / View-Once — messages self-destruct after being read. The server never stores plaintext.
+🕶 Plausible deniability (decoy mode) — enter a sterile workspace under duress. Your real vault stays hidden.
+📦 Traffic-masking cryptography — fixed-size packet padding means "Hi" and a full essay look identical to observers.
+🌑 Stealth offline QR handshake — exchange public keys directly between devices. No server-mediated key exchange, zero trail.
+⏰ Ephemeral identities — disposable knot aliases that self-destruct after 1 hour or when the chat window closes.
+
+Why it matters: traditional E2EE still leaves metadata trails. Knots eliminates server-side visibility entirely — from message contents to contact discovery to traffic analysis.
+
+You own the keys. Your contacts stay yours. No platform can lock you out or ban you.
+
+🔗 [link]
+#Privacy #Encryption #Cybersecurity #OpenSource #Anonymous #ZeroKnowledge #SecureMessaging #SelfSovereignIdentity #DarkWebSecurity #PrivacyTech

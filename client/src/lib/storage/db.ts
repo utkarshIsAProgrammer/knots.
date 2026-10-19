@@ -68,7 +68,9 @@ export async function loadThread(thread: string): Promise<StoredMessage[]> {
 }
 
 export async function loadAllMessages(): Promise<StoredMessage[]> {
-  return db.messages.orderBy('createdAt').toArray();
+  const now = Date.now();
+  const all = await db.messages.orderBy('createdAt').toArray();
+  return all.filter((m) => !m.expiresAt || m.expiresAt > now);
 }
 
 export async function putMessage(message: StoredMessage): Promise<void> {

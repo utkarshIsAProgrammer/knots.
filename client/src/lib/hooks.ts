@@ -53,28 +53,57 @@ export function useOutsideClick<T extends HTMLElement>(active: boolean, onOutsid
   return ref;
 }
 
-/** Polling interval that pauses while the tab is hidden. */
+/** Polling interval that continues running in background at intervalMs, with immediate execution on return. */
 export function usePolling(callback: () => void, intervalMs: number, enabled = true) {
   const saved = useRef(callback);
   saved.current = callback;
   useEffect(() => {
     if (!enabled) return;
-    let id: ReturnType<typeof setInterval> | null = null;
-    const start = () => {
-      if (id) return;
-      saved.current();
-      id = setInterval(() => saved.current(), intervalMs);
+    saved.current();
+    const id = setInterval(() => saved.current(), intervalMs);
+
+    const onVisibility = () => {
+      if (!document.hidden) {
+        saved.current();
+      }
     };
-    const stop = () => {
-      if (id) clearInterval(id);
-      id = null;
-    };
-    const onVisibility = () => (document.hidden ? stop() : start());
-    start();
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
-      stop();
+      clearInterval(id);
       document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [intervalMs, enabled]);
+}
+
+/**
+ * Tracks the mobile visual viewport height (accounting for virtual keyboards on iOS/Android).
+ * Returns the exact available height in pixels, or null if visualViewport is unsupported.
+ */
+export function useVisualViewport() {
+  const [viewportHeight, setViewportHeight] = useState<number | null>(() => {
+    if (typeof window !== 'undefined' && window.visualViewport) {
+      return window.visualViewport.height;
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+
+    const update = () => {
+      if (window.visualViewport) {
+        setViewportHeight(window.visualViewport.height);
+      }
+    };
+
+    window.visualViewport.addEventListener('resize', update);
+    window.visualViewport.addEventListener('scroll', update);
+
+    return () => {
+      window.visualViewport?.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('scroll', update);
+    };
+  }, []);
+
+  return viewportHeight;
 }

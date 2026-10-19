@@ -29,6 +29,20 @@ class NotificationService {
   }
 
   public init() {
+    if (typeof window === 'undefined') return;
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        console.warn('Knots: Service worker registration error:', err);
+      });
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'OPEN_CHAT' && event.data.peer) {
+          useUI.getState().openThread(event.data.peer);
+          useUI.getState().setSection('chats');
+        }
+      });
+    }
+
     if (!this.isSupported()) return;
     if (Notification.permission === 'default' && !this.hasPrompted) {
       this.hasPrompted = true;
@@ -46,7 +60,7 @@ class NotificationService {
    * Dispatches an on-device notification for a message.
    * Completely avoids duplicate alerts for the same message and throttles repeated notifications per sender.
    */
-  public notifyActivity(senderKnotId: string, messageId?: string) {
+  public async notifyActivity(senderKnotId: string, messageId?: string) {
     if (!this.isSupported() || Notification.permission !== 'granted') {
       return;
     }
@@ -101,21 +115,36 @@ class NotificationService {
         ? 'New message received.'
         : 'You have a new message. Open Knots to take a look.';
 
-      const n = new Notification(title, {
+      const options: NotificationOptions = {
         body,
         icon: '/favicon.svg',
+        badge: '/favicon.svg',
         tag: `knots-msg-${senderKey}`,
+        data: { peer: cleanSender },
         silent: false
-      });
-
-      n.onclick = () => {
-        try {
-          window.focus();
-        } catch {}
-        useUI.getState().openThread(cleanSender);
-        useUI.getState().setSection('chats');
-        n.close();
       };
+
+      // Mobile & Tablet: Android Chrome and iOS Safari require ServiceWorkerRegistration.showNotification
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg && typeof reg.showNotification === 'function') {
+          await reg.showNotification(title, options);
+          return;
+        }
+      }
+
+      // Desktop browser fallback
+      if (typeof Notification !== 'undefined') {
+        const n = new Notification(title, options);
+        n.onclick = () => {
+          try {
+            window.focus();
+          } catch {}
+          useUI.getState().openThread(cleanSender);
+          useUI.getState().setSection('chats');
+          n.close();
+        };
+      }
     } catch (e) {
       console.warn('Failed to display notification', e);
     }

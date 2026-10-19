@@ -19,6 +19,7 @@ const BURN_OPTIONS = [
 interface ComposerProps {
   onSend: (text: string, options: { replyTo?: ReplyRef | null; ttlSeconds?: number; sticker?: string | null }) => void;
   onTyping: () => void;
+  onStopTyping?: () => void;
   replyTo: ReplyRef | null;
   onClearReply: () => void;
   editing: string | null;
@@ -31,6 +32,7 @@ interface ComposerProps {
 export function Composer({
   onSend,
   onTyping,
+  onStopTyping,
   replyTo,
   onClearReply,
   editing,
@@ -70,6 +72,7 @@ export function Composer({
   const submit = () => {
     const text = value.trim();
     if (!text) return;
+    onStopTyping?.();
     if (editing) {
       onEditSubmit(text);
     } else {
@@ -86,7 +89,7 @@ export function Composer({
   };
 
   return (
-    <div className="border-t border-zinc-200 dark:border-zinc-800/80 bg-white/95 dark:bg-[#000000] p-2 sm:p-2.5 backdrop-blur-md">
+    <div className="shrink-0 border-t border-zinc-200 dark:border-zinc-800/80 bg-white/95 dark:bg-[#000000] p-2 sm:p-2.5 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-md">
       {editing && (
         <div className="mx-auto mb-2 max-w-4xl">
           <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-[#000000] px-3 py-1.5">
@@ -151,9 +154,14 @@ export function Composer({
               disabled={disabled}
               placeholder="Type a message…"
               onChange={(e) => {
-                setValue(e.target.value);
+                const val = e.target.value;
+                setValue(val);
                 grow();
-                onTyping();
+                if (val.trim()) {
+                  onTyping();
+                } else {
+                  onStopTyping?.();
+                }
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -161,7 +169,7 @@ export function Composer({
                   submit();
                 }
               }}
-              className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-[#000000] text-[14px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:border-zinc-400 dark:focus:border-white/30 transition-all px-3 py-2 resize-none max-h-[120px] overflow-x-hidden overflow-y-hidden no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden leading-relaxed select-text block break-words"
+              className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-[#000000] text-[16px] sm:text-[14px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:border-zinc-400 dark:focus:border-white/30 transition-all px-3 py-2 resize-none max-h-[120px] overflow-x-hidden overflow-y-hidden no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden leading-relaxed select-text block break-words"
               style={{ minHeight: '38px', height: '38px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
             />
           </div>

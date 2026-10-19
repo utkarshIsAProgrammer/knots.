@@ -44,6 +44,7 @@ interface ChatState {
   markThreadReadByPeer: (peerKnotId?: string, messageId?: string) => Promise<void>;
   retry: (peer: string, id: string, me: string) => Promise<void>;
   purgeThread: (peer: string, me: string) => Promise<void>;
+  clear: () => void;
 }
 
 function group(messages: StoredMessage[]): Record<string, StoredMessage[]> {
@@ -137,6 +138,8 @@ let isRefreshing = false;
 export const useChat = create<ChatState>((set, get) => ({
   threads: {},
   loading: false,
+
+  clear: () => set({ threads: {}, loading: false }),
 
   bootstrap: async () => {
     await sweepExpired();
@@ -232,6 +235,10 @@ export const useChat = create<ChatState>((set, get) => ({
           // Brand new incoming message
           const decoded = await decode(raw, me.knotId);
           const senderKnot = (raw.sender_knot_id || decoded.senderId || '').trim();
+          if (senderKnot) {
+            const { usePresence } = await import('./presence');
+            usePresence.getState().receiveTyping(senderKnot, false);
+          }
           const contact = senderKnot ? contactsMap.get(senderKnot.toLowerCase()) : undefined;
           if (!contact?.muted) {
             playSound = true;
@@ -338,6 +345,10 @@ export const useChat = create<ChatState>((set, get) => ({
 
     const contactsList = useContacts.getState().contacts;
     const senderKnot = (raw.sender_knot_id || decoded.senderId || '').trim();
+    if (senderKnot) {
+      const { usePresence } = await import('./presence');
+      usePresence.getState().receiveTyping(senderKnot, false);
+    }
     const contact = senderKnot
       ? contactsList.find((c) => (c.knot_id || '').toLowerCase() === senderKnot.toLowerCase())
       : undefined;

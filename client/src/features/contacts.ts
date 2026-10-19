@@ -19,6 +19,7 @@ interface ContactsState {
   toggleMute: (knotId: string) => Promise<void>;
   remove: (knotId: string) => Promise<void>;
   addLocal: (knotId: string) => Promise<void>;
+  clear: () => void;
 }
 
 export const useContacts = create<ContactsState>((set, get) => ({
@@ -27,6 +28,8 @@ export const useContacts = create<ContactsState>((set, get) => ({
   outgoing: [],
   loading: false,
   hydrated: false,
+
+  clear: () => set({ contacts: [], incoming: [], outgoing: [], loading: false, hydrated: false }),
 
   load: async () => {
     const me = (await import('./identity')).useIdentity.getState().identity;

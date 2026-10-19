@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Bell, BellOff, Eraser, MoreVertical, Search, UserCheck, UserMinus, AlertCircle, RotateCcw } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
@@ -15,6 +15,7 @@ import { useIdentity } from '../../features/identity';
 import { useUI } from '../../features/ui';
 import { toast } from '../../features/toast';
 import { shortKnotId } from '../../lib/format';
+import { useVisualViewport, useIsDesktop } from '../../lib/hooks';
 import type { ReplyRef } from '../../lib/api/types';
 import type { StoredMessage } from '../../lib/storage/db';
 
@@ -93,11 +94,7 @@ export function ChatView() {
   }
 
   const name = contact?.alias || shortKnotId(peer);
-  const subtitle = presence?.isTyping
-    ? 'typing…'
-    : presence?.isOnline
-      ? 'online'
-      : 'offline';
+  const subtitle = presence?.isOnline ? 'Active now' : 'Offline';
 
   const visible = query
     ? messages.filter((m) => m.plaintext.toLowerCase().includes(query.toLowerCase()))
@@ -112,9 +109,35 @@ export function ChatView() {
     setReplyTo(null);
     setTyping(null);
   };
+  const viewportHeight = useVisualViewport();
+  const isDesktop = useIsDesktop();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = (smooth = true) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  };
+
+  useEffect(() => {
+    scrollToBottom(false);
+    return () => {
+      setTyping(null);
+    };
+  }, [peer, setTyping]);
+
+  useEffect(() => {
+    scrollToBottom(true);
+  }, [visible.length, presence?.isTyping]);
 
   return (
-    <div className="relative flex h-full flex-col bg-white dark:bg-[#000000]">
+    <div
+      className="fixed inset-x-0 top-0 z-30 flex flex-col bg-white dark:bg-[#000000] lg:static lg:h-full lg:z-auto overscroll-none"
+      style={!isDesktop && viewportHeight ? { height: `${viewportHeight}px`, maxHeight: `${viewportHeight}px` } : undefined}
+    >
       <header className="relative z-20 flex items-center gap-2 sm:gap-3 border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-[#000000] px-3 py-2.5 sm:px-4 backdrop-blur-md">
         <Button variant="ghost" size="icon" className="lg:hidden" onClick={closeThread} aria-label="Back">
           <ArrowLeft size={19} />
@@ -123,7 +146,7 @@ export function ChatView() {
           <Avatar knotId={peer} online={presence?.isOnline} size="sm" />
           <div className="min-w-0">
             <p className="truncate text-[15px] font-semibold tracking-[-0.01em] text-zinc-900 dark:text-white">{name}</p>
-            <p className={`truncate text-[12px] ${presence?.isTyping ? 'text-emerald-600 dark:text-emerald-400 font-medium' : presence?.isOnline ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-500 dark:text-zinc-400'}`}>
+            <p className={`truncate text-[12px] ${presence?.isOnline ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-zinc-500 dark:text-zinc-400'}`}>
               {subtitle}
             </p>
           </div>
@@ -204,7 +227,7 @@ export function ChatView() {
         </div>
       )}
 
-      <div className="scroll-area relative flex-1 overflow-y-auto bg-zinc-50/40 dark:bg-[#000000]">
+      <div ref={scrollContainerRef} className="scroll-area relative flex-1 overflow-y-auto bg-zinc-50/40 dark:bg-[#000000]">
         {messages.length === 0 ? (
           <EmptyState
             title="Chat is empty"
@@ -217,6 +240,8 @@ export function ChatView() {
           <MessageList
             messages={visible}
             me={myKnotId}
+            peer={peer}
+            isTyping={Boolean(presence?.isTyping)}
             onReply={(m) => {
               setEditing(null);
               setReplyTo({ id: m.id, text: m.plaintext.slice(0, 90), sender: m.senderId });
@@ -262,6 +287,7 @@ export function ChatView() {
       <Composer
         onSend={handleSend}
         onTyping={() => setTyping(peer)}
+        onStopTyping={() => setTyping(null)}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
         editing={editing ? editing.plaintext : null}

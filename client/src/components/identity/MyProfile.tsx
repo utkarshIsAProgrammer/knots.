@@ -164,8 +164,8 @@ export function MyProfile() {
       <Dialog
         open={signOutOpen}
         onClose={() => setSignOutOpen(false)}
-        title="Sign out of this device?"
-        description="Your messages saved on this device are cleared. Your keys aren't lost — signing in with your username and password brings the same identity back."
+        title="Sign out of this session?"
+        description="Sign out of this session. Your auto-delete messages remain active until their countdown timers expire. Signing in with your username and password brings your identity back."
         footer={
           <>
             <Button variant="ghost" size="sm" onClick={() => setSignOutOpen(false)}>

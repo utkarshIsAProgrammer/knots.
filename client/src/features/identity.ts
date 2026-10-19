@@ -6,7 +6,7 @@ import {
   generateIdentity,
   importIdentityFromMnemonic
 } from '../lib/crypto/webcrypto';
-import { getSetting, loadIdentity, purgeVault, saveIdentity, setSetting } from '../lib/storage/db';
+import { db, getSetting, loadIdentity, purgeVault, saveIdentity, setSetting } from '../lib/storage/db';
 import { toast } from './toast';
 
 interface IdentityState {
@@ -222,9 +222,18 @@ export const useIdentity = create<IdentityState>((set, get) => ({
   },
 
   signOut: async () => {
-    await purgeVault();
+    const { useChat } = await import('./chat');
+    const { useContacts } = await import('./contacts');
+    const { usePresence } = await import('./presence');
+    const { useUI } = await import('./ui');
+    usePresence.getState().stop();
+    useChat.getState().clear();
+    useContacts.getState().clear();
+    useUI.getState().closeThread();
+    await db.identity.clear();
+    await setSetting('authUser', '');
     set({ identity: null, alias: '', email: '', authUser: '', authMethod: 'phrase', avatarSeed: '' });
-    toast.info('Signed out', 'Nothing is left on this device. Sign in again with your username and password.');
+    toast.info('Signed out', 'Sign in again with your username and password.');
   },
 
   rotate: async () => {

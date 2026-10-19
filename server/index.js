@@ -57,6 +57,9 @@ function sendSseEvent(targetKnotId, eventData) {
   for (const clientRes of Array.from(clientSet)) {
     try {
       clientRes.write(payload);
+      if (typeof clientRes.flush === 'function') {
+        clientRes.flush();
+      }
     } catch (e) {
       clientSet.delete(clientRes);
     }
@@ -715,6 +718,12 @@ app.post('/api/v1/message', async (req, res) => {
       memoryStore.messages.push(messageDoc);
     }
 
+    const senderPres = memoryStore.presence.get((senderKnotId || '').trim().toLowerCase());
+    if (senderPres) {
+      senderPres.typingTo = null;
+    }
+    sendSseEvent(recipientKnotId, { type: 'typing', isTyping: false, fromKnotId: senderKnotId });
+
     sendSseEvent(recipientKnotId, {
       type: 'new_message',
       messageId,
@@ -744,13 +753,16 @@ app.get('/api/v1/messages/:knotId', async (req, res) => {
     if (offlineQueueCollection) {
       // Clean up any expired messages
       await offlineQueueCollection.deleteMany({
-        expires_at: { $lte: now }
+        expires_at: { $ne: null, $lte: now }
       }).catch(() => {});
 
       const rx = { $regex: new RegExp(`^${escapeRegex(knotId.trim())}$`, 'i') };
       messages = await offlineQueueCollection.find({
         recipient_knot_id: rx,
-        expires_at: { $gt: now },
+        $or: [
+          { expires_at: null },
+          { expires_at: { $gt: now } }
+        ],
         status: { $in: ['queued', 'delivered', 'read', 'deleted'] }
       }).sort({ created_at: 1 }).toArray();
     } else {
@@ -822,9 +834,19 @@ app.get('/api/v1/messages/sent-status/:senderKnotId', async (req, res) => {
   try {
     let sentStatuses = [];
     if (offlineQueueCollection) {
+      await offlineQueueCollection.deleteMany({
+        expires_at: { $ne: null, $lte: now }
+      }).catch(() => {});
+
       const rx = { $regex: new RegExp(`^${escapeRegex(senderKnotId.trim())}$`, 'i') };
       sentStatuses = await offlineQueueCollection.find(
-        { sender_knot_id: rx },
+        {
+          sender_knot_id: rx,
+          $or: [
+            { expires_at: null },
+            { expires_at: { $gt: now } }
+          ]
+        },
         { projection: { _id: 1, recipient_knot_id: 1, sender_knot_id: 1, created_at: 1, status: 1, read_at: 1, reactions: 1, edited: 1, edited_at: 1, ciphertext: 1, nonce: 1, tag: 1, expires_at: 1, ttlSeconds: 1, type: 1, sticker: 1, reply_to: 1 } }
       ).toArray();
     } else {
@@ -1019,13 +1041,21 @@ app.post('/api/v1/presence/heartbeat', (req, res) => {
   const { knotId, typingTo } = req.body;
   if (!knotId) return res.status(400).json({ error: 'knotId required' });
 
-  memoryStore.presence.set(knotId.trim().toLowerCase(), {
+  const knotKey = knotId.trim().toLowerCase();
+  const prev = memoryStore.presence.get(knotKey);
+  const prevTypingTo = prev?.typingTo;
+  const isNowTyping = Boolean(typingTo);
+
+  memoryStore.presence.set(knotKey, {
     lastSeen: Date.now(),
-    typingTo: typingTo ? typingTo.trim().toLowerCase() : null
+    typingTo: isNowTyping ? typingTo.trim().toLowerCase() : null,
+    typingAt: isNowTyping ? Date.now() : null
   });
 
   if (typingTo) {
     sendSseEvent(typingTo, { type: 'typing', isTyping: true, fromKnotId: knotId });
+  } else if (prevTypingTo) {
+    sendSseEvent(prevTypingTo, { type: 'typing', isTyping: false, fromKnotId: knotId });
   }
 
   res.json({ success: true });
@@ -1042,7 +1072,14 @@ app.get('/api/v1/presence/:knotId', (req, res) => {
   }
 
   const isOnline = Date.now() - p.lastSeen < 15000; // 15 second heartbeat threshold
-  const isTyping = Boolean(isOnline && p.typingTo && p.typingTo === (peerId ? peerId.trim().toLowerCase() : ''));
+  // Typing strictly expires after 3 seconds of inactivity
+  const isTyping = Boolean(
+    isOnline &&
+    p.typingTo &&
+    p.typingTo === (peerId ? peerId.trim().toLowerCase() : '') &&
+    p.typingAt &&
+    Date.now() - p.typingAt < 3000
+  );
 
   res.json({
     success: true,

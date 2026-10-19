@@ -47,7 +47,11 @@ export const usePresence = create<PresenceState>((set, get) => ({
         ids.map(async (id) => {
           try {
             const res = await api.getPresence(id, currentMe!);
-            next[id] = { isOnline: res.isOnline, lastSeen: res.lastSeen, isTyping: res.isTyping || (get().peers[id]?.isTyping ?? false) };
+            next[id] = {
+              isOnline: res.isOnline,
+              lastSeen: res.lastSeen,
+              isTyping: res.isTyping
+            };
           } catch {
             next[id] = { isOnline: false, lastSeen: get().peers[id]?.lastSeen ?? null, isTyping: false };
           }
@@ -76,7 +80,10 @@ export const usePresence = create<PresenceState>((set, get) => ({
     
     // Clear any previous reset timer
     const prevTimer = peerTypingTimers.get(canonicalKey.toLowerCase());
-    if (prevTimer) clearTimeout(prevTimer);
+    if (prevTimer) {
+      clearTimeout(prevTimer);
+      peerTypingTimers.delete(canonicalKey.toLowerCase());
+    }
 
     set((s) => ({
       peers: {
@@ -101,14 +108,14 @@ export const usePresence = create<PresenceState>((set, get) => ({
           }
         }));
         peerTypingTimers.delete(canonicalKey.toLowerCase());
-      }, 3500);
+      }, 3000);
       peerTypingTimers.set(canonicalKey.toLowerCase(), resetTimer);
     }
   },
 
   setTyping: (peer) => {
-    set({ typingTo: peer });
     if (typingTimer) clearTimeout(typingTimer);
+    set({ typingTo: peer });
     if (currentMe) {
       void api.presenceHeartbeat(currentMe, peer).catch(() => undefined);
     }
@@ -118,7 +125,7 @@ export const usePresence = create<PresenceState>((set, get) => ({
         if (currentMe) {
           void api.presenceHeartbeat(currentMe, null).catch(() => undefined);
         }
-      }, 4000);
+      }, 2500);
     }
   },
 

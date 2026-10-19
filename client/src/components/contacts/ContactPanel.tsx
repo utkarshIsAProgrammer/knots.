@@ -11,6 +11,7 @@ import { useChat } from '../../features/chat';
 import { usePresence } from '../../features/presence';
 import { useIdentity } from '../../features/identity';
 import { useUI } from '../../features/ui';
+import { shortKnotId } from '../../lib/format';
 import type { Contact } from '../../lib/api/types';
 import type { StoredMessage } from '../../lib/storage/db';
 
@@ -25,24 +26,49 @@ export function ContactPanel() {
   const me = identity?.knotId ?? '';
 
   const rows = useMemo(() => {
-    const accepted = contacts.filter((c) => c.status === 'accepted');
-    return accepted.map((contact) => {
+    const peersMap = new Map<string, { contact: Contact; thread: StoredMessage[] }>();
+
+    // 1. Add all contacts that are accepted
+    for (const contact of contacts.filter((c) => c.status === 'accepted')) {
       const cLower = contact.knot_id.toLowerCase();
       const threadMatchKey = Object.keys(threads).find((k) => k.toLowerCase() === cLower);
       const thread: StoredMessage[] = (threadMatchKey ? threads[threadMatchKey] : threads[contact.knot_id]) ?? [];
-      const last = thread[thread.length - 1];
-      const unread = thread.filter((m) => m.recipientId === me && m.status !== 'read' && m.status !== 'deleted').length;
-      const peerMatchKey = Object.keys(peers).find((k) => k.toLowerCase() === cLower);
-      const peerState = peerMatchKey ? peers[peerMatchKey] : peers[contact.knot_id];
-      return {
-        contact,
-        last,
-        unread,
-        online: peerState?.isOnline ?? false,
-        typing: peerState?.isTyping ?? false,
-        time: last?.createdAt ?? (contact.created_at ? new Date(contact.created_at).getTime() : 0)
-      };
-    });
+      peersMap.set(cLower, { contact, thread });
+    }
+
+    // 2. Add any active conversations from threads (so conversations are never lost)
+    for (const [threadId, msgs] of Object.entries(threads)) {
+      if (!msgs || msgs.length === 0) continue;
+      const tLower = threadId.toLowerCase();
+      if (!peersMap.has(tLower)) {
+        const contactMatch = contacts.find((c) => (c.knot_id || '').toLowerCase() === tLower);
+        const contact: Contact = contactMatch || {
+          knot_id: threadId,
+          alias: shortKnotId(threadId),
+          status: 'accepted',
+          created_at: new Date(msgs[0]?.createdAt || Date.now()).toISOString()
+        };
+        peersMap.set(tLower, { contact, thread: msgs });
+      }
+    }
+
+    return Array.from(peersMap.values())
+      .map(({ contact, thread }) => {
+        const cLower = contact.knot_id.toLowerCase();
+        const last = thread[thread.length - 1];
+        const unread = thread.filter((m) => m.recipientId === me && m.status !== 'read' && m.status !== 'deleted').length;
+        const peerMatchKey = Object.keys(peers).find((k) => k.toLowerCase() === cLower);
+        const peerState = peerMatchKey ? peers[peerMatchKey] : peers[contact.knot_id];
+        return {
+          contact,
+          last,
+          unread,
+          online: peerState?.isOnline ?? false,
+          typing: peerState?.isTyping ?? false,
+          time: last?.createdAt ?? (contact.created_at ? new Date(contact.created_at).getTime() : 0)
+        };
+      })
+      .sort((a, b) => b.time - a.time);
   }, [contacts, threads, me, peers]);
 
   const openConvo = (contact: Contact) => {
