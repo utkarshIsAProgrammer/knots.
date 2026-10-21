@@ -7,6 +7,7 @@
 
 import { create } from 'zustand';
 import { toast } from '../features/toast';
+import { setCustomRelay } from './api/client';
 
 const STORAGE_KEY_UNLOCKED = 'knots_stealth_unlocked';
 const STORAGE_KEY_PEERS = 'knots_stealth_peers';
@@ -378,6 +379,17 @@ export async function processGhostCommand(
     }
     toast.success('Cloudinary connected', `${arg1} (${arg2})`);
     return { isGhostCommand: true, feedback: 'cloudinary_saved' };
+  }
+
+  // 5. Configure Relay Backend URL (//server <url> or //relay <url> or //server reset)
+  if ((cmd === '//server' || cmd === '//relay') && arg1) {
+    const targetUrl = arg1.trim().toLowerCase() === 'reset' ? '' : arg1.trim();
+    setCustomRelay(targetUrl);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([20, 30, 20]); } catch {}
+    }
+    toast.success('Relay updated', targetUrl ? targetUrl : 'Reset to default');
+    return { isGhostCommand: true, feedback: 'relay_saved' };
   }
 
   return { isGhostCommand: false };

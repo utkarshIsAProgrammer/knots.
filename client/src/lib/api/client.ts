@@ -10,15 +10,39 @@ import type {
   NodeInfo
 } from './types';
 
-const RAW_BASES: string[] = (
-  import.meta.env.VITE_API_BASE
-    ? String(import.meta.env.VITE_API_BASE).split(',')
-    : ['']
-)
-  .map((s) => s.trim().replace(/\/$/, ''))
-  .filter((s, _idx, arr) => s || arr.length === 1);
+const STORAGE_KEY_RELAY = 'knots_custom_relay';
 
+function loadBases(): string[] {
+  const custom = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_RELAY) : null;
+  const envBases = import.meta.env.VITE_API_BASE
+    ? String(import.meta.env.VITE_API_BASE).split(',')
+    : [];
+
+  const combined = [
+    ...(custom ? custom.split(',') : []),
+    ...envBases
+  ]
+    .map((s) => s.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
+  return combined.length > 0 ? combined : [''];
+}
+
+let RAW_BASES: string[] = loadBases();
 let activeBaseIndex = 0;
+
+export function setCustomRelay(url: string): void {
+  const clean = url.trim().replace(/\/$/, '');
+  if (typeof localStorage !== 'undefined') {
+    if (clean) {
+      localStorage.setItem(STORAGE_KEY_RELAY, clean);
+    } else {
+      localStorage.removeItem(STORAGE_KEY_RELAY);
+    }
+  }
+  RAW_BASES = loadBases();
+  activeBaseIndex = 0;
+}
 
 export function getRawBase(): string {
   return RAW_BASES[activeBaseIndex] || '';
