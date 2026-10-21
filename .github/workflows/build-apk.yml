@@ -44,18 +44,20 @@ jobs:
           cd client
           npm run build
 
-      - name: Sync Capacitor Android
+      - name: Copy Web Assets to Android
         run: |
           cd client
-          npx cap sync android
+          npx cap copy android
 
-      - name: Make Gradle Wrapper Executable
+      - name: Configure Android SDK & Gradle
         run: |
+          echo "sdk.dir=/usr/local/lib/android/sdk" > client/android/local.properties
           chmod +x client/android/gradlew
 
       - name: Build Debug APK with Gradle
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
           cd client/android
           ./gradlew assembleDebug --no-daemon --stacktrace
