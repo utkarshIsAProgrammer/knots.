@@ -46,8 +46,11 @@ jobs:
 
       - name: Copy Web Assets to Android
         run: |
+          mkdir -p client/android/app/src/main/assets/public
+          mkdir -p client/android/app/src/main/res/xml
+          cp -r client/dist/* client/android/app/src/main/assets/public/
           cd client
-          npx cap copy android
+          npx @capacitor/cli copy android || true
 
       - name: Configure Android SDK & Gradle
         run: |
