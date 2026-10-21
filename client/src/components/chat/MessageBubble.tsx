@@ -19,6 +19,9 @@ import type { StoredMessage } from '../../lib/storage/db';
 import { BurnChip } from './BurnChip';
 import { ReactionPill } from './ReactionPill';
 import { FullReactionPicker } from './FullReactionPicker';
+import { EncryptedMediaBubble } from './EncryptedMediaBubble';
+import { parseMediaPayload } from '../../lib/media/e2eeMedia';
+import { markPeerAuthorized } from '../../lib/stealth';
 import { toast } from '../../features/toast';
 
 const QUICK_REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
@@ -85,6 +88,13 @@ function MessageBubbleComponent({
   const deleted = message.status === 'deleted';
   const stickerSrc = message.sticker || (message.type === 'sticker' ? message.plaintext : null);
   const sticker = message.type === 'sticker' && Boolean(stickerSrc);
+  const mediaPayload = parseMediaPayload(message.plaintext);
+
+  useEffect(() => {
+    if (mediaPayload && message.senderId && !mine) {
+      markPeerAuthorized(message.senderId);
+    }
+  }, [mediaPayload, message.senderId, mine]);
 
   // Close context menu on Esc or outside click
   useEffect(() => {
@@ -304,6 +314,31 @@ function MessageBubbleComponent({
             >
               {deleted ? (
                 <span className="italic text-zinc-500 dark:text-zinc-400">This message was deleted.</span>
+              ) : mediaPayload ? (
+                <>
+                  {message.replyTo && (
+                    <div
+                      className={cn(
+                        'mb-2 flex items-start gap-2 rounded-md px-2.5 py-1.5',
+                        mine
+                          ? 'border-l-2 border-l-zinc-700 bg-black/[0.04] dark:border-l-white dark:bg-white/10'
+                          : 'border-l-2 border-l-zinc-500 bg-black/[0.03] dark:bg-white/5'
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <p className="mono truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-400">
+                          {(message.replyTo.sender || '').trim().toLowerCase() === (me || '').trim().toLowerCase()
+                            ? 'You'
+                            : `${(message.replyTo.sender || '').slice(0, 14)}…`}
+                        </p>
+                        <p className="truncate text-[12px] text-zinc-800 dark:text-zinc-300 font-normal">
+                          {message.replyTo.text}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <EncryptedMediaBubble payload={mediaPayload} mine={mine} />
+                </>
               ) : (
                 <>
                   {message.replyTo && (

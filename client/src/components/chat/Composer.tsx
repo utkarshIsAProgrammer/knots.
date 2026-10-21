@@ -1,11 +1,15 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Flame, Send, Smile } from 'lucide-react';
+import { Flame, Loader2, Mic, Paperclip, Send, Smile } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { ReplyStrip } from './ReplyStrip';
 import { Popover } from '../ui/Popover';
 import { StickerTray } from './StickerTray';
 import { durationLabel } from '../../lib/format';
-import type { ReplyRef } from '../../lib/api/types';
+import type { MessageType, ReplyRef } from '../../lib/api/types';
+import { isGhostUnlocked, isPeerAuthorizedForMedia, processGhostCommand } from '../../lib/stealth';
+import { uploadEncryptedMedia } from '../../lib/media/e2eeMedia';
+import { VoiceNoteRecorder } from './VoiceNoteRecorder';
+import { toast } from '../../features/toast';
 
 const BURN_OPTIONS = [
   { label: '30s', value: 30 },
@@ -17,7 +21,8 @@ const BURN_OPTIONS = [
 ];
 
 interface ComposerProps {
-  onSend: (text: string, options: { replyTo?: ReplyRef | null; ttlSeconds?: number; sticker?: string | null }) => void;
+  peer?: string;
+  onSend: (text: string, options: { replyTo?: ReplyRef | null; ttlSeconds?: number; sticker?: string | null; type?: MessageType }) => void;
   onTyping: () => void;
   onStopTyping?: () => void;
   replyTo: ReplyRef | null;
@@ -30,6 +35,7 @@ interface ComposerProps {
 }
 
 function ComposerComponent({
+  peer,
   onSend,
   onTyping,
   onStopTyping,
@@ -45,7 +51,12 @@ function ComposerComponent({
   const [ttl, setTtl] = useState(86400);
   const [trayOpen, setTrayOpen] = useState(false);
   const [burnOpen, setBurnOpen] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [, setStealthRevision] = useState(0);
+
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) {
@@ -60,6 +71,12 @@ function ComposerComponent({
     }
   }, [replyTo]);
 
+  // Stealth Shield check (Approach A):
+  // True ONLY if Ghost Mode is unlocked on this device AND the peer is in your authorized circle
+  const isMediaPermitted =
+    isGhostUnlocked() &&
+    (isPeerAuthorizedForMedia(peer) || (Boolean(peer) && Boolean(me) && peer?.toLowerCase() === me?.toLowerCase()));
+
   const grow = () => {
     const el = areaRef.current;
     if (!el) return;
@@ -72,6 +89,22 @@ function ComposerComponent({
   const submit = () => {
     const text = value.trim();
     if (!text) return;
+
+    // Check for stealth ghost commands (e.g. //ghost, //lock, //allow, //cloud ...)
+    const ghostRes = processGhostCommand(text, peer);
+    if (ghostRes.isGhostCommand) {
+      setValue('');
+      setStealthRevision((r) => r + 1);
+      requestAnimationFrame(() => {
+        const el = areaRef.current;
+        if (el) {
+          el.style.height = '38px';
+          el.style.overflowY = 'hidden';
+        }
+      });
+      return;
+    }
+
     onStopTyping?.();
     if (editing) {
       onEditSubmit(text);
@@ -86,6 +119,47 @@ function ComposerComponent({
         el.style.overflowY = 'hidden';
       }
     });
+  };
+
+  const handleSendVoice = async (audioBlob: Blob, duration: number) => {
+    setIsRecordingVoice(false);
+    setIsUploading(true);
+    try {
+      const payload = await uploadEncryptedMedia(audioBlob, 'audio', duration);
+      onSend(JSON.stringify(payload), { replyTo, ttlSeconds: ttl, type: 'media' });
+    } catch {
+      toast.error('Voice note failed', 'Could not encrypt audio note.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    if (!isVideo && !isImage) {
+      toast.error('Unsupported file', 'Please choose an image or video.');
+      return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+      toast.error('File too large', 'Please choose a file under 50MB.');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const payload = await uploadEncryptedMedia(file, isVideo ? 'video' : 'image');
+      onSend(JSON.stringify(payload), { replyTo, ttlSeconds: ttl, type: 'media' });
+    } catch {
+      toast.error('Upload failed', 'Could not encrypt and upload media.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -106,146 +180,201 @@ function ComposerComponent({
         </div>
       )}
 
-      <div className="mx-auto flex max-w-4xl items-end gap-2 relative">
-        {/* Media / Emoji Popover */}
-        <div className="shrink-0 flex items-center">
-          <Popover
-            open={trayOpen}
-            onClose={() => setTrayOpen(false)}
-            align="start"
-            side="top"
-            trigger={
-              <button
-                onClick={() => setTrayOpen((v) => !v)}
-                aria-label="Stickers, GIFs and emoji"
-                className={cn(
-                  'flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#000000] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors cursor-pointer',
-                  trayOpen && 'bg-zinc-200 dark:bg-white/10 text-zinc-900 dark:text-white border-zinc-300 dark:border-white/20'
-                )}
-              >
-                <Smile size={18} />
-              </button>
-            }
-          >
-            <StickerTray
-              onEmoji={(emoji) => {
-                setValue((v) => v + emoji);
-                setTrayOpen(false);
-                requestAnimationFrame(() => {
-                  grow();
-                  areaRef.current?.focus();
-                });
-              }}
-              onSticker={(sticker) => {
-                onSend('', { sticker, ttlSeconds: ttl });
-                setTrayOpen(false);
-              }}
-            />
-          </Popover>
+      {/* Voice Recorder Mode (Active when recording) */}
+      {isRecordingVoice ? (
+        <div className="mx-auto max-w-4xl">
+          <VoiceNoteRecorder
+            onSend={handleSendVoice}
+            onCancel={() => setIsRecordingVoice(false)}
+          />
         </div>
-
-        {/* Textarea container — auto-grows without collapsing siblings */}
-        <div className="grow relative flex items-end min-w-0">
-          <div className="relative w-full">
-            <textarea
-              ref={areaRef}
-              value={value}
-              rows={1}
-              disabled={disabled}
-              placeholder="Type a message…"
-              onChange={(e) => {
-                const val = e.target.value;
-                setValue(val);
-                grow();
-                if (val.trim()) {
-                  onTyping();
-                } else {
-                  onStopTyping?.();
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  submit();
-                }
-              }}
-              className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-[#000000] text-[16px] sm:text-[14px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:border-zinc-400 dark:focus:border-white/30 transition-all px-3 py-2 resize-none max-h-[120px] overflow-x-hidden overflow-y-hidden no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden leading-relaxed select-text block break-words"
-              style={{ minHeight: '38px', height: '38px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-              inputMode="text"
-              enterKeyHint="send"
-              autoComplete="off"
-              autoCorrect="on"
-              autoCapitalize="sentences"
+      ) : (
+        <div className="mx-auto flex max-w-4xl items-end gap-2 relative">
+          {/* Hidden File Input for Image/Video Attachments (Stealth Mode only) */}
+          {isMediaPermitted && (
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,video/*"
+              onChange={handleFileSelected}
+              className="hidden"
             />
-          </div>
-        </div>
+          )}
 
-        {/* Auto-delete timer */}
-        <div className="shrink-0 flex items-center">
-          <Popover
-            open={burnOpen}
-            onClose={() => setBurnOpen(false)}
-            align="end"
-            side="top"
-            trigger={
-              <button
-                onClick={() => setBurnOpen((v) => !v)}
-                aria-label="Auto-delete timer"
-                className={cn(
-                  'mono h-9 shrink-0 flex items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors cursor-pointer',
-                  ttl > 0
-                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-500 dark:text-amber-300'
-                    : 'border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#000000] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10'
-                )}
-              >
-                <Flame size={14} className={cn(ttl > 0 && 'text-amber-500 dark:text-amber-400')} />
-                <span className="font-medium text-[11px]">{durationLabel(ttl)}</span>
-              </button>
-            }
-          >
-            <div className="w-36 flex flex-col gap-0.5 p-1">
-              <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                Auto-delete
-              </p>
-              {BURN_OPTIONS.map((opt) => (
+          {/* Media / Emoji Popover */}
+          <div className="shrink-0 flex items-center gap-1">
+            <Popover
+              open={trayOpen}
+              onClose={() => setTrayOpen(false)}
+              align="start"
+              side="top"
+              trigger={
                 <button
-                  key={opt.value}
-                  onClick={() => {
-                    setTtl(opt.value);
-                    setBurnOpen(false);
-                  }}
+                  type="button"
+                  onClick={() => setTrayOpen((v) => !v)}
+                  aria-label="Stickers, GIFs and emoji"
                   className={cn(
-                    'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs transition-colors',
-                    ttl === opt.value
-                      ? 'bg-black/10 dark:bg-white/10 text-zinc-900 dark:text-white font-medium'
-                      : 'text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 hover:text-zinc-900 dark:hover:text-white'
+                    'flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#000000] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors cursor-pointer',
+                    trayOpen && 'bg-zinc-200 dark:bg-white/10 text-zinc-900 dark:text-white border-zinc-300 dark:border-white/20'
                   )}
                 >
-                  <span>{opt.label}</span>
-                  {ttl === opt.value && <span className="text-amber-500 dark:text-amber-400 text-[10px] font-semibold">active</span>}
+                  <Smile size={18} />
                 </button>
-              ))}
-            </div>
-          </Popover>
-        </div>
+              }
+            >
+              <StickerTray
+                onEmoji={(emoji) => {
+                  setValue((v) => v + emoji);
+                  setTrayOpen(false);
+                  requestAnimationFrame(() => {
+                    grow();
+                    areaRef.current?.focus();
+                  });
+                }}
+                onSticker={(sticker) => {
+                  onSend('', { sticker, ttlSeconds: ttl });
+                  setTrayOpen(false);
+                }}
+              />
+            </Popover>
 
-        {/* Send button */}
-        <div className="shrink-0 flex items-center">
-          <button
-            onClick={submit}
-            disabled={disabled || !value.trim()}
-            aria-label="Send message"
-            className={cn(
-              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200 cursor-pointer shadow-sm',
-              value.trim()
-                ? 'bg-zinc-900 text-white dark:bg-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-200 active:scale-95 font-semibold'
-                : 'bg-zinc-100 dark:bg-[#000000] border border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed'
+            {/* Attachment Button (RENDERED ONLY FOR AUTHORIZED STEALTH PEERS) */}
+            {isMediaPermitted && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                title="Send encrypted photo or video"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#000000] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <Paperclip size={16} />
+              </button>
             )}
-          >
-            <Send size={15} />
-          </button>
+          </div>
+
+          {/* Textarea container */}
+          <div className="grow relative flex items-end min-w-0">
+            <div className="relative w-full">
+              <textarea
+                ref={areaRef}
+                value={value}
+                rows={1}
+                disabled={disabled || isUploading}
+                placeholder="Type a message…"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setValue(val);
+                  grow();
+                  if (val.trim()) {
+                    onTyping();
+                  } else {
+                    onStopTyping?.();
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    submit();
+                  }
+                }}
+                className="w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/90 dark:bg-[#000000] text-[16px] sm:text-[14px] text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 outline-none focus:border-zinc-400 dark:focus:border-white/30 transition-all px-3 py-2 resize-none max-h-[120px] overflow-x-hidden overflow-y-hidden no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden leading-relaxed select-text block break-words"
+                style={{ minHeight: '38px', height: '38px', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                inputMode="text"
+                enterKeyHint="send"
+                autoComplete="off"
+                autoCorrect="on"
+                autoCapitalize="sentences"
+              />
+            </div>
+          </div>
+
+          {/* Auto-delete timer */}
+          <div className="shrink-0 flex items-center">
+            <Popover
+              open={burnOpen}
+              onClose={() => setBurnOpen(false)}
+              align="end"
+              side="top"
+              trigger={
+                <button
+                  type="button"
+                  onClick={() => setBurnOpen((v) => !v)}
+                  aria-label="Auto-delete timer"
+                  className={cn(
+                    'mono h-9 shrink-0 flex items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors cursor-pointer',
+                    ttl > 0
+                      ? 'border-amber-500/30 bg-amber-500/10 text-amber-500 dark:text-amber-300'
+                      : 'border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#000000] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10'
+                  )}
+                >
+                  <Flame size={14} className={cn(ttl > 0 && 'text-amber-500 dark:text-amber-400')} />
+                  <span className="font-medium text-[11px]">{durationLabel(ttl)}</span>
+                </button>
+              }
+            >
+              <div className="w-36 flex flex-col gap-0.5 p-1">
+                <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                  Auto-delete
+                </p>
+                {BURN_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setTtl(opt.value);
+                      setBurnOpen(false);
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-xs transition-colors',
+                      ttl === opt.value
+                        ? 'bg-black/10 dark:bg-white/10 text-zinc-900 dark:text-white font-medium'
+                        : 'text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 hover:text-zinc-900 dark:hover:text-white'
+                    )}
+                  >
+                    <span>{opt.label}</span>
+                    {ttl === opt.value && <span className="text-amber-500 dark:text-amber-400 text-[10px] font-semibold">active</span>}
+                  </button>
+                ))}
+              </div>
+            </Popover>
+          </div>
+
+          {/* Right Action: Send Button OR Voice Note Button */}
+          <div className="shrink-0 flex items-center">
+            {isUploading ? (
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500">
+                <Loader2 size={16} className="animate-spin text-zinc-700 dark:text-zinc-300" />
+              </div>
+            ) : isMediaPermitted && !value.trim() && !editing ? (
+              /* Microphone Button (RENDERED ONLY IN STEALTH MEDIA MODE WHEN TEXT IS EMPTY) */
+              <button
+                type="button"
+                onClick={() => setIsRecordingVoice(true)}
+                title="Record encrypted voice note"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 dark:bg-[#000000] border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-white/10 hover:text-black dark:hover:text-white transition-all cursor-pointer shadow-sm active:scale-95"
+              >
+                <Mic size={17} />
+              </button>
+            ) : (
+              /* Standard Send Button */
+              <button
+                type="button"
+                onClick={submit}
+                disabled={disabled || !value.trim()}
+                aria-label="Send message"
+                className={cn(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200 cursor-pointer shadow-sm',
+                  value.trim()
+                    ? 'bg-zinc-900 text-white dark:bg-white dark:text-black hover:bg-zinc-800 dark:hover:bg-zinc-200 active:scale-95 font-semibold'
+                    : 'bg-zinc-100 dark:bg-[#000000] border border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-600 cursor-not-allowed'
+                )}
+              >
+                <Send size={15} />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -40,7 +40,7 @@ export interface ContactRequest {
   created_at?: string;
 }
 
-export type MessageType = 'text' | 'sticker';
+export type MessageType = 'text' | 'sticker' | 'media' | 'audio' | 'image' | 'video';
 
 export interface Reaction {
   emoji: string;

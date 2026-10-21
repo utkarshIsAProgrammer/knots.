@@ -124,10 +124,16 @@ export function ChatView() {
 
   const handleSend = useCallback((
     text: string,
-    options: { replyTo?: ReplyRef | null; ttlSeconds?: number; sticker?: string | null }
+    options: { replyTo?: ReplyRef | null; ttlSeconds?: number; sticker?: string | null; type?: import('../../lib/api/types').MessageType }
   ) => {
     if (!peer || !myKnotId) return;
-    void send(peer, { text, replyTo: options.replyTo, ttlSeconds: options.ttlSeconds, sticker: options.sticker, type: options.sticker ? 'sticker' : 'text' }, myKnotId);
+    void send(peer, {
+      text,
+      replyTo: options.replyTo,
+      ttlSeconds: options.ttlSeconds,
+      sticker: options.sticker,
+      type: options.type || (options.sticker ? 'sticker' : 'text')
+    }, myKnotId);
     setReplyTo(null);
     setTyping(null);
   }, [peer, myKnotId, send, setTyping]);
@@ -331,6 +337,7 @@ export function ChatView() {
       })()}
 
       <Composer
+        peer={peer}
         onSend={handleSend}
         onTyping={() => setTyping(peer)}
         onStopTyping={() => setTyping(null)}
