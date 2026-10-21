@@ -6,6 +6,7 @@
  */
 
 import { create } from 'zustand';
+import { toast } from '../features/toast';
 
 const STORAGE_KEY_UNLOCKED = 'knots_stealth_unlocked';
 const STORAGE_KEY_PEERS = 'knots_stealth_peers';
@@ -305,11 +306,13 @@ export async function processGhostCommand(
   currentPeer?: string
 ): Promise<{ isGhostCommand: boolean; feedback?: string }> {
   const trimmed = text.trim();
-  if (!trimmed.startsWith('//')) {
+  if (!trimmed.startsWith('/') && !trimmed.startsWith('//')) {
     return { isGhostCommand: false };
   }
 
-  const parts = trimmed.split(/\s+/);
+  // Normalize so both /ghost and //ghost produce //ghost
+  const normalized = trimmed.startsWith('//') ? trimmed : `/${trimmed}`;
+  const parts = normalized.split(/\s+/);
   const cmd = parts[0].toLowerCase();
   const arg1 = parts[1];
   const arg2 = parts[2];
@@ -369,10 +372,11 @@ export async function processGhostCommand(
 
   // 4. Configure Cloudinary directly from chat (//cloud <cloudName> <unsignedPreset>)
   if (cmd === '//cloud' && arg1 && arg2) {
-    saveCloudinaryConfig(arg1, arg2);
+    saveCloudinaryConfig(arg1.trim(), arg2.trim());
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       try { navigator.vibrate([20, 30, 20]); } catch {}
     }
+    toast.success('Cloudinary connected', `${arg1} (${arg2})`);
     return { isGhostCommand: true, feedback: 'cloudinary_saved' };
   }
 

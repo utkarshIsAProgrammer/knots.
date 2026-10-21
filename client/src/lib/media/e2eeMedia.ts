@@ -2,13 +2,16 @@ import { getCloudinaryConfig } from '../stealth';
 
 export interface EncryptedMediaPayload {
   mediaType: 'audio' | 'image' | 'video';
-  url: string; // Cloudinary secure URL or encrypted data URL
+  url: string; // Cloudinary secure URL or local blob URL
   key: string; // Base64 AES-256 key
   iv: string; // Base64 IV
   mimeType: string;
   duration?: number; // for audio / video in seconds
   size?: number; // file size in bytes
   fileName?: string;
+  publicId?: string; // Cloudinary public_id
+  deleteToken?: string;
+  isUploading?: boolean;
 }
 
 /**
@@ -168,7 +171,9 @@ export async function uploadEncryptedMedia(
       iv: ivB64,
       mimeType: sanitizedBlob.type || 'application/octet-stream',
       duration,
-      size: sanitizedBlob.size
+      size: sanitizedBlob.size,
+      publicId: json.public_id,
+      deleteToken: json.delete_token
     };
   } catch (err) {
     throw err;
@@ -183,6 +188,11 @@ const decryptedCache = new Map<string, string>();
  * Returns a local blob: URL that can be directly played or displayed.
  */
 export async function decryptMediaPayload(payload: EncryptedMediaPayload): Promise<string> {
+  // If already a local blob URL or currently uploading, return local preview directly
+  if (payload.isUploading || payload.url.startsWith('blob:')) {
+    return payload.url;
+  }
+
   const cacheKey = `${payload.url}-${payload.key.slice(0, 16)}`;
   if (decryptedCache.has(cacheKey)) {
     return decryptedCache.get(cacheKey)!;
@@ -234,9 +244,49 @@ export function parseMediaPayload(str?: string | null): EncryptedMediaPayload | 
   if (!trimmed.startsWith('{"mediaType":')) return null;
   try {
     const parsed = JSON.parse(trimmed);
-    if (parsed && parsed.mediaType && parsed.url && parsed.key && parsed.iv) {
+    if (parsed && parsed.mediaType && parsed.url) {
       return parsed as EncryptedMediaPayload;
     }
   } catch {}
   return null;
+}
+
+/**
+ * Extract Cloudinary public ID from a Cloudinary URL
+ */
+export function extractCloudinaryPublicId(url?: string | null): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const match = url.match(/\/upload\/(?:v\d+\/)?([^\/]+)(?:\.[^.]+)?$/);
+  if (match) return match[1];
+  const parts = url.split('/');
+  return parts[parts.length - 1] || null;
+}
+
+/**
+ * Removes media completely from Cloudinary CDN to leave zero traces
+ */
+export async function deleteMediaFromCloudinary(payload: EncryptedMediaPayload): Promise<void> {
+  const publicId = payload.publicId || extractCloudinaryPublicId(payload.url);
+  if (!publicId) return;
+
+  // 1. Delete token check (instant unsigned deletion if within delete window)
+  if (payload.deleteToken) {
+    try {
+      const cfg = getCloudinaryConfig();
+      if (cfg?.cloudName) {
+        const formData = new FormData();
+        formData.append('token', payload.deleteToken);
+        await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cfg.cloudName)}/delete_by_token`, {
+          method: 'POST',
+          body: formData
+        });
+      }
+    } catch {}
+  }
+
+  // 2. Relay server signed purge (if CLOUDINARY_URL is configured on Render)
+  try {
+    const { api } = await import('../api/client');
+    await api.deleteMedia(publicId, payload.url);
+  } catch {}
 }

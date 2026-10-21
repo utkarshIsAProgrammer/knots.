@@ -20,6 +20,13 @@ import {
 import { playPing } from '../lib/sound';
 import { notifications } from '../lib/notifications';
 import { toast } from './toast';
+import {
+  uploadEncryptedMedia,
+  parseMediaPayload,
+  deleteMediaFromCloudinary,
+  extractCloudinaryPublicId,
+  type EncryptedMediaPayload
+} from '../lib/media/e2eeMedia';
 
 export interface SendInput {
   text: string;
@@ -37,6 +44,13 @@ interface ChatState {
   refresh: () => Promise<void>;
   pushIncoming: (raw: RawMessage) => Promise<void>;
   send: (peer: string, input: SendInput, me: string) => Promise<void>;
+  sendMedia: (
+    peer: string,
+    blob: Blob,
+    mediaType: 'image' | 'video' | 'audio',
+    options: { replyTo?: ReplyRef | null; ttlSeconds?: number; duration?: number },
+    me: string
+  ) => Promise<void>;
   edit: (peer: string, id: string, text: string, me: string) => Promise<void>;
   remove: (peer: string, id: string, me: string) => Promise<void>;
   toggleReaction: (peer: string, id: string, emoji: string, me: string) => Promise<void>;
@@ -148,8 +162,17 @@ export const useChat = create<ChatState>((set, get) => ({
       let changed = false;
       const next: Record<string, StoredMessage[]> = {};
       for (const [k, msgs] of Object.entries(s.threads)) {
+        const expired = msgs.filter((m) => m.expiresAt && m.expiresAt <= now);
+        if (expired.length > 0) {
+          changed = true;
+          for (const exp of expired) {
+            const payload = parseMediaPayload(exp.plaintext);
+            if (payload) {
+              void deleteMediaFromCloudinary(payload);
+            }
+          }
+        }
         const filtered = msgs.filter((m) => !m.expiresAt || m.expiresAt > now);
-        if (filtered.length !== msgs.length) changed = true;
         next[k] = filtered;
       }
       return changed ? { threads: next } : s;
@@ -501,6 +524,135 @@ export const useChat = create<ChatState>((set, get) => ({
     }
   },
 
+  sendMedia: async (peer, blob, mediaType, options, me) => {
+    const createdAt = Date.now();
+    const msgId = crypto.randomUUID();
+    const localBlobUrl = URL.createObjectURL(blob);
+
+    let targetPeer = peer;
+    try {
+      const { useContacts } = await import('./contacts');
+      const contacts = useContacts.getState().contacts;
+      const match = contacts.find((c) => c.knot_id.trim().toLowerCase() === (peer || '').trim().toLowerCase());
+      if (match) targetPeer = match.knot_id;
+    } catch {}
+
+    const ttlSeconds = typeof options.ttlSeconds === 'number' ? options.ttlSeconds : 86400;
+
+    const optimisticPayload: EncryptedMediaPayload = {
+      mediaType,
+      url: localBlobUrl,
+      key: '',
+      iv: '',
+      mimeType: blob.type,
+      duration: options.duration,
+      size: blob.size,
+      isUploading: true
+    };
+
+    const local: StoredMessage = {
+      id: msgId,
+      thread: targetPeer,
+      senderId: me,
+      recipientId: targetPeer,
+      plaintext: JSON.stringify(optimisticPayload),
+      ciphertext: '',
+      type: 'media',
+      status: 'queued',
+      createdAt,
+      ttlSeconds,
+      expiresAt: null,
+      pending: true,
+      replyTo: options.replyTo ?? null,
+      reactions: []
+    };
+
+    // Save optimistic preview locally & trigger instant UI render (WhatsApp/Instagram style)
+    await putMessage(local);
+    const pLower = targetPeer.trim().toLowerCase();
+    const targetKey = Object.keys(get().threads).find((k) => k.toLowerCase() === pLower) || targetPeer;
+
+    set((s) => ({
+      threads: {
+        ...s.threads,
+        [targetKey]: [...(s.threads[targetKey] || []), local]
+      }
+    }));
+    playPing();
+
+    // Background upload & encryption (does not block composer)
+    (async () => {
+      try {
+        const payload = await uploadEncryptedMedia(blob, mediaType, options.duration);
+        const serialized = JSON.stringify(payload);
+        const enc = await encryptPayload(serialized, DEFAULT_SHARED_SECRET);
+
+        const res = await api.sendMessage({
+          id: msgId,
+          messageId: msgId,
+          recipientKnotId: targetPeer,
+          senderKnotId: me,
+          ciphertext: enc.ciphertext,
+          nonce: enc.iv,
+          tag: enc.tag,
+          ttlSeconds,
+          type: 'media',
+          replyTo: options.replyTo ?? undefined
+        });
+
+        const serverId = res.messageId || msgId;
+        if (serverId !== msgId) {
+          await deleteMessageLocal(msgId);
+        }
+
+        const sentAt = Date.now();
+        const serverExpiresAt = res.expires_at
+          ? new Date(res.expires_at).getTime()
+          : (ttlSeconds > 0 ? sentAt + ttlSeconds * 1000 : null);
+
+        const delivered: StoredMessage = {
+          ...local,
+          id: serverId,
+          plaintext: serialized,
+          ciphertext: enc.ciphertext,
+          nonce: enc.iv,
+          tag: enc.tag,
+          pending: false,
+          failed: false,
+          status: 'delivered' as const,
+          createdAt: sentAt,
+          expiresAt: serverExpiresAt
+        };
+
+        await putMessage(delivered);
+        set((s) => {
+          const cur = s.threads[targetKey] || [];
+          return {
+            threads: {
+              ...s.threads,
+              [targetKey]: cur.map((m) => (m.id === msgId ? delivered : m))
+            }
+          };
+        });
+      } catch (err: any) {
+        set((s) => {
+          const cur = s.threads[targetKey] || [];
+          return {
+            threads: {
+              ...s.threads,
+              [targetKey]: cur.map((m) => (m.id === msgId ? { ...m, pending: false, failed: true } : m))
+            }
+          };
+        });
+        if (err?.message === 'CLOUDINARY_NOT_CONFIGURED') {
+          toast.error('Cloudinary not connected', 'Connect Cloudinary via //cloud <cloudName> <preset> to send media.');
+        } else {
+          toast.error('Media upload failed', err?.message || 'Could not upload media.');
+        }
+      }
+    })();
+  },
+
   retry: async (peer, id, me) => {
     const pLower = peer.trim().toLowerCase();
     const targetKey = Object.keys(get().threads).find((k) => k.toLowerCase() === pLower) || peer;
@@ -614,10 +766,24 @@ export const useChat = create<ChatState>((set, get) => ({
   },
 
   remove: async (peer, id, me) => {
+    const pLower = peer.trim().toLowerCase();
+    const targetKey = Object.keys(get().threads).find((k) => k.toLowerCase() === pLower) || peer;
+    const msg = (get().threads[targetKey] ?? []).find((m) => m.id === id);
+
+    let publicId: string | undefined;
+    let mediaUrl: string | undefined;
+
+    if (msg?.plaintext) {
+      const mediaPayload = parseMediaPayload(msg.plaintext);
+      if (mediaPayload) {
+        mediaUrl = mediaPayload.url;
+        publicId = mediaPayload.publicId || extractCloudinaryPublicId(mediaPayload.url) || undefined;
+        void deleteMediaFromCloudinary(mediaPayload);
+      }
+    }
+
     await patchMessage(id, { plaintext: '', ciphertext: '', status: 'deleted' });
     set((s) => {
-      const pLower = peer.trim().toLowerCase();
-      const targetKey = Object.keys(s.threads).find((k) => k.toLowerCase() === pLower) || peer;
       return {
         threads: {
           ...s.threads,
@@ -628,7 +794,7 @@ export const useChat = create<ChatState>((set, get) => ({
       };
     });
     try {
-      await api.deleteMessage(id, me);
+      await api.deleteMessage(id, me, publicId, mediaUrl);
     } catch (err) {
       toast.error('Delete failed', (err as Error).message);
     }

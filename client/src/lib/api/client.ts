@@ -223,11 +223,18 @@ export const api = {
     });
   },
 
-  deleteMessage(messageId: string, knotId: string) {
+  deleteMessage(messageId: string, knotId: string, publicId?: string, mediaUrl?: string) {
     return request<{ success: boolean }>(`/messages/${encodeURIComponent(messageId)}`, {
       method: 'DELETE',
-      body: JSON.stringify({ knotId })
+      body: JSON.stringify({ knotId, publicId, mediaUrl })
     });
+  },
+
+  deleteMedia(publicId: string, url?: string) {
+    return request<{ success: boolean }>('/media/delete', {
+      method: 'POST',
+      body: JSON.stringify({ publicId, url })
+    }).catch(() => ({ success: false }));
   },
 
   clearChat(userKnotId: string, peerKnotId: string) {

@@ -910,12 +910,51 @@ app.put('/api/v1/messages/:id/edit', async (req, res) => {
   }
 });
 
+async function deleteFromCloudinary(publicId, resourceType = null) {
+  if (!publicId) return;
+  const cloudinaryUrl = process.env.CLOUDINARY_URL;
+  if (!cloudinaryUrl) return;
+
+  try {
+    const match = cloudinaryUrl.match(/^cloudinary:\/\/([^:]+):([^@]+)@(.+)$/);
+    if (!match) return;
+    const [, apiKey, apiSecret, cloudName] = match;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const toSign = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
+    const signature = crypto.createHash('sha1').update(toSign).digest('hex');
+
+    const params = new URLSearchParams();
+    params.append('public_id', publicId);
+    params.append('api_key', apiKey);
+    params.append('timestamp', String(timestamp));
+    params.append('signature', signature);
+
+    const types = resourceType ? [resourceType] : ['raw', 'image', 'video'];
+    for (const t of types) {
+      await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/${t}/destroy`, {
+        method: 'POST',
+        body: params
+      }).catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[CLOUDINARY DESTROY ERROR]', err.message);
+  }
+}
+
 // ===== Delete Message for Everyone =====
 app.delete('/api/v1/messages/:id', async (req, res) => {
   const { id } = req.params;
-  const { knotId } = req.body || req.query || {};
+  const { knotId, publicId, mediaUrl } = req.body || req.query || {};
 
   try {
+    let targetPublicId = publicId;
+    if (!targetPublicId && mediaUrl) {
+      const m = mediaUrl.match(/\/upload\/(?:v\d+\/)?([^\/]+)(?:\.[^.]+)?$/);
+      if (m) targetPublicId = m[1];
+    }
+    if (targetPublicId) {
+      void deleteFromCloudinary(targetPublicId);
+    }
     let notifyRec = null;
     let notifySend = null;
     if (offlineQueueCollection) {
@@ -948,6 +987,20 @@ app.delete('/api/v1/messages/:id', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ===== Permanent Cloudinary Media Deletion =====
+app.post('/api/v1/media/delete', async (req, res) => {
+  const { publicId, url } = req.body || {};
+  let target = publicId;
+  if (!target && url) {
+    const m = url.match(/\/upload\/(?:v\d+\/)?([^\/]+)(?:\.[^.]+)?$/);
+    if (m) target = m[1];
+  }
+  if (target) {
+    await deleteFromCloudinary(target);
+  }
+  res.json({ success: true, message: 'Media purged from cloud' });
 });
 
 // ===== Instant Clear Entire Chat for Conversation =====

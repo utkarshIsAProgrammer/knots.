@@ -48,7 +48,7 @@ export function ChatView() {
     return matchKey ? threads[matchKey] : [];
   }, [threads, peer]);
 
-  const { send, edit, remove, toggleReaction, markRead, retry, purgeThread } = useChat();
+  const { send, sendMedia, edit, remove, toggleReaction, markRead, retry, purgeThread } = useChat();
 
   const peers = usePresence((s) => s.peers);
   const presence = useMemo(() => {
@@ -145,6 +145,17 @@ export function ChatView() {
     setReplyTo(null);
     setTyping(null);
   }, [peer, myKnotId, send, setTyping]);
+
+  const handleSendMedia = useCallback((
+    blob: Blob,
+    mediaType: 'image' | 'video' | 'audio',
+    options: { replyTo?: ReplyRef | null; ttlSeconds?: number; duration?: number }
+  ) => {
+    if (!peer || !myKnotId) return;
+    void sendMedia(peer, blob, mediaType, options, myKnotId);
+    setReplyTo(null);
+    setTyping(null);
+  }, [peer, myKnotId, sendMedia, setTyping]);
 
   const handleReply = useCallback((m: StoredMessage) => {
     setEditing(null);
@@ -348,6 +359,7 @@ export function ChatView() {
       <Composer
         peer={peer}
         onSend={handleSend}
+        onSendMedia={handleSendMedia}
         onTyping={() => setTyping(peer)}
         onStopTyping={() => setTyping(null)}
         replyTo={replyTo}

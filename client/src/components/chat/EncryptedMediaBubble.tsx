@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Lock, Pause, Play, X } from 'lucide-react';
+import { Lock, Loader2, Pause, Play, X } from 'lucide-react';
 import { decryptMediaPayload, type EncryptedMediaPayload } from '../../lib/media/e2eeMedia';
 import { cn } from '../../lib/cn';
 
@@ -132,7 +132,8 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
           {/* Play/Pause Button */}
           <button
             type="button"
-            onClick={togglePlay}
+            onClick={payload.isUploading ? undefined : togglePlay}
+            disabled={payload.isUploading}
             className={cn(
               'grid h-9 w-9 shrink-0 place-items-center rounded-full transition-transform active:scale-95 cursor-pointer',
               mine
@@ -140,13 +141,19 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
                 : 'bg-zinc-800 text-white dark:bg-white/20 dark:text-white shadow-sm'
             )}
           >
-            {isPlaying ? <Pause size={15} /> : <Play size={15} className="ml-0.5" />}
+            {payload.isUploading ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : isPlaying ? (
+              <Pause size={15} />
+            ) : (
+              <Play size={15} className="ml-0.5" />
+            )}
           </button>
 
           {/* Scrubber & Waveform track */}
           <div className="flex flex-1 flex-col justify-center gap-1">
             <div
-              onClick={handleSeek}
+              onClick={payload.isUploading ? undefined : handleSeek}
               className="relative h-2 w-full cursor-pointer rounded-full bg-black/10 dark:bg-white/10 overflow-hidden"
             >
               <div
@@ -159,19 +166,21 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
             </div>
 
             <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
-              <span>{formatSeconds(currentTime)}</span>
+              <span>{payload.isUploading ? 'Sending…' : formatSeconds(currentTime)}</span>
               <span>{formatSeconds(duration || currentTime)}</span>
             </div>
           </div>
 
           {/* Speed Toggle */}
-          <button
-            type="button"
-            onClick={toggleSpeed}
-            className="rounded px-1.5 py-0.5 text-[10px] font-mono font-bold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white border border-black/10 dark:border-white/10 cursor-pointer"
-          >
-            {speed}x
-          </button>
+          {!payload.isUploading && (
+            <button
+              type="button"
+              onClick={toggleSpeed}
+              className="rounded px-1.5 py-0.5 text-[10px] font-mono font-bold text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white border border-black/10 dark:border-white/10 cursor-pointer"
+            >
+              {speed}x
+            </button>
+          )}
         </div>
       </div>
     );
@@ -185,13 +194,24 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
           <img
             src={mediaUrl}
             alt="Encrypted media"
-            onClick={() => setFullView(true)}
-            className="max-h-64 sm:max-h-80 w-auto rounded-lg object-cover cursor-pointer transition-transform hover:scale-[1.01] active:scale-98"
+            onClick={() => !payload.isUploading && setFullView(true)}
+            className={cn(
+              'max-h-64 sm:max-h-80 w-auto rounded-lg object-cover cursor-pointer transition-transform hover:scale-[1.01] active:scale-98',
+              payload.isUploading && 'brightness-75'
+            )}
           />
-          <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-            <Lock size={10} />
-            <span>E2EE</span>
-          </div>
+
+          {payload.isUploading ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/45 backdrop-blur-[1px] pointer-events-none select-none rounded-lg">
+              <div className="h-10 w-10 rounded-full border-2 border-white/20 border-t-white animate-spin flex items-center justify-center" />
+              <span className="text-[11px] font-medium text-white/95 drop-shadow">Sending…</span>
+            </div>
+          ) : (
+            <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+              <Lock size={10} />
+              <span>E2EE</span>
+            </div>
+          )}
         </div>
 
         {/* Full View Modal */}
@@ -225,10 +245,19 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
       <div className="relative overflow-hidden rounded-lg max-w-sm">
         <video
           src={mediaUrl}
-          controls
+          controls={!payload.isUploading}
           playsInline
-          className="max-h-64 sm:max-h-80 w-full rounded-lg bg-black object-contain shadow-sm"
+          className={cn(
+            'max-h-64 sm:max-h-80 w-full rounded-lg bg-black object-contain shadow-sm',
+            payload.isUploading && 'brightness-75'
+          )}
         />
+        {payload.isUploading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/45 backdrop-blur-[1px] pointer-events-none select-none rounded-lg">
+            <div className="h-10 w-10 rounded-full border-2 border-white/20 border-t-white animate-spin flex items-center justify-center" />
+            <span className="text-[11px] font-medium text-white/95 drop-shadow">Sending video…</span>
+          </div>
+        )}
       </div>
     );
   }

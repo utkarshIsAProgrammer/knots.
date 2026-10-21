@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Flame, Loader2, Mic, Paperclip, Send, Smile } from 'lucide-react';
+import { Flame, Mic, Paperclip, Send, Smile } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { ReplyStrip } from './ReplyStrip';
 import { Popover } from '../ui/Popover';
@@ -7,7 +7,6 @@ import { StickerTray } from './StickerTray';
 import { durationLabel } from '../../lib/format';
 import type { MessageType, ReplyRef } from '../../lib/api/types';
 import { useGhostStore, processGhostCommand } from '../../lib/stealth';
-import { uploadEncryptedMedia } from '../../lib/media/e2eeMedia';
 import { VoiceNoteRecorder } from './VoiceNoteRecorder';
 import { toast } from '../../features/toast';
 
@@ -23,6 +22,11 @@ const BURN_OPTIONS = [
 interface ComposerProps {
   peer?: string;
   onSend: (text: string, options: { replyTo?: ReplyRef | null; ttlSeconds?: number; sticker?: string | null; type?: MessageType }) => void;
+  onSendMedia?: (
+    blob: Blob,
+    mediaType: 'image' | 'video' | 'audio',
+    options: { replyTo?: ReplyRef | null; ttlSeconds?: number; duration?: number }
+  ) => void;
   onTyping: () => void;
   onStopTyping?: () => void;
   replyTo: ReplyRef | null;
@@ -37,6 +41,7 @@ interface ComposerProps {
 function ComposerComponent({
   peer,
   onSend,
+  onSendMedia,
   onTyping,
   onStopTyping,
   replyTo,
@@ -52,7 +57,6 @@ function ComposerComponent({
   const [trayOpen, setTrayOpen] = useState(false);
   const [burnOpen, setBurnOpen] = useState(false);
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [, setStealthRevision] = useState(0);
 
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -120,24 +124,14 @@ function ComposerComponent({
     });
   };
 
-  const handleSendVoice = async (audioBlob: Blob, duration: number) => {
+  const handleSendVoice = (audioBlob: Blob, duration: number) => {
     setIsRecordingVoice(false);
-    setIsUploading(true);
-    try {
-      const payload = await uploadEncryptedMedia(audioBlob, 'audio', duration);
-      onSend(JSON.stringify(payload), { replyTo, ttlSeconds: ttl, type: 'media' });
-    } catch (err: any) {
-      if (err?.message === 'CLOUDINARY_NOT_CONFIGURED') {
-        toast.error('Cloudinary not connected', 'Connect Cloudinary via //cloud <cloudName> <preset> to prevent server bandwidth usage.');
-      } else {
-        toast.error('Voice note failed', err?.message || 'Could not upload audio note.');
-      }
-    } finally {
-      setIsUploading(false);
+    if (onSendMedia) {
+      onSendMedia(audioBlob, 'audio', { replyTo, ttlSeconds: ttl, duration });
     }
   };
 
-  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
@@ -154,18 +148,8 @@ function ComposerComponent({
       return;
     }
 
-    setIsUploading(true);
-    try {
-      const payload = await uploadEncryptedMedia(file, isVideo ? 'video' : 'image');
-      onSend(JSON.stringify(payload), { replyTo, ttlSeconds: ttl, type: 'media' });
-    } catch (err: any) {
-      if (err?.message === 'CLOUDINARY_NOT_CONFIGURED') {
-        toast.error('Cloudinary not connected', 'Connect Cloudinary via //cloud <cloudName> <preset> to prevent server bandwidth usage.');
-      } else {
-        toast.error('Upload failed', err?.message || 'Could not upload media.');
-      }
-    } finally {
-      setIsUploading(false);
+    if (onSendMedia) {
+      onSendMedia(file, isVideo ? 'video' : 'image', { replyTo, ttlSeconds: ttl });
     }
   };
 
@@ -250,7 +234,6 @@ function ComposerComponent({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
                 title="Send encrypted photo or video"
                 className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#000000] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors cursor-pointer"
               >
@@ -266,7 +249,7 @@ function ComposerComponent({
                 ref={areaRef}
                 value={value}
                 rows={1}
-                disabled={disabled || isUploading}
+                disabled={disabled}
                 placeholder="Type a message…"
                 onChange={(e) => {
                   const val = e.target.value;
@@ -348,11 +331,7 @@ function ComposerComponent({
 
           {/* Right Action: Send Button OR Voice Note Button */}
           <div className="shrink-0 flex items-center">
-            {isUploading ? (
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-500">
-                <Loader2 size={16} className="animate-spin text-zinc-700 dark:text-zinc-300" />
-              </div>
-            ) : isMediaPermitted && !value.trim() && !editing ? (
+            {isMediaPermitted && !value.trim() && !editing ? (
               /* Microphone Button (RENDERED ONLY IN STEALTH MEDIA MODE WHEN TEXT IS EMPTY) */
               <button
                 type="button"
