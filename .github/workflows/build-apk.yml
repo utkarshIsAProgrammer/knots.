@@ -30,9 +30,6 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Build Web Application
         run: |
           cd client
@@ -45,6 +42,8 @@ jobs:
           chmod +x client/android/gradlew
 
       - name: Build Debug APK with Gradle
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
           cd client/android
           ./gradlew assembleDebug --no-daemon --stacktrace
