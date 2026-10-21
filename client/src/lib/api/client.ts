@@ -10,34 +10,73 @@ import type {
   NodeInfo
 } from './types';
 
-const RAW_BASE = import.meta.env.VITE_API_BASE ? String(import.meta.env.VITE_API_BASE).replace(/\/$/, '') : '';
-const API_BASE = `${RAW_BASE}/api/v1`;
+const RAW_BASES: string[] = (
+  import.meta.env.VITE_API_BASE
+    ? String(import.meta.env.VITE_API_BASE).split(',')
+    : ['']
+)
+  .map((s) => s.trim().replace(/\/$/, ''))
+  .filter((s, _idx, arr) => s || arr.length === 1);
+
+let activeBaseIndex = 0;
+
+export function getRawBase(): string {
+  return RAW_BASES[activeBaseIndex] || '';
+}
+
+export function rotateRawBase(): string {
+  if (RAW_BASES.length > 1) {
+    activeBaseIndex = (activeBaseIndex + 1) % RAW_BASES.length;
+  }
+  return getRawBase();
+}
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${endpoint}`, {
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-      ...options
-    });
-  } catch {
-    throw new Error('Relay unreachable — is the Knots server running on :3000?');
+  let lastErr: any = null;
+  const attempts = RAW_BASES.length;
+
+  for (let i = 0; i < attempts; i++) {
+    const idx = (activeBaseIndex + i) % attempts;
+    const base = RAW_BASES[idx];
+    const url = `${base}/api/v1${endpoint}`;
+
+    try {
+      const res = await fetch(url, {
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        ...options
+      });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) {
+        throw new Error((data.error as string) || `Relay error (HTTP ${res.status})`);
+      }
+      activeBaseIndex = idx;
+      return data as T;
+    } catch (err: any) {
+      lastErr = err;
+    }
   }
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) {
-    throw new Error((data.error as string) || `Relay error (HTTP ${res.status})`);
-  }
-  return data as T;
+
+  throw lastErr || new Error('All Knots relays unreachable');
 }
 
 export const api = {
   async health(): Promise<HealthStatus> {
-    try {
-      const res = await fetch(`${RAW_BASE}/health`);
-      return (await res.json()) as HealthStatus;
-    } catch (err) {
-      return { status: 'offline', error: (err as Error).message };
+    const attempts = RAW_BASES.length;
+    let lastError = 'Relays offline';
+    for (let i = 0; i < attempts; i++) {
+      const idx = (activeBaseIndex + i) % attempts;
+      const base = RAW_BASES[idx];
+      try {
+        const res = await fetch(`${base}/health`);
+        if (res.ok) {
+          activeBaseIndex = idx;
+          return (await res.json()) as HealthStatus;
+        }
+      } catch (err: any) {
+        lastError = err?.message || 'Relay offline';
+      }
     }
+    return { status: 'offline', error: lastError };
   },
 
   checkUsername(username: string) {

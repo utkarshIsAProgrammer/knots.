@@ -14,6 +14,7 @@ import { usePresence } from '../features/presence';
 import { notifications } from '../lib/notifications';
 import { sweepExpired } from '../lib/storage/db';
 import { usePolling } from '../lib/hooks';
+import { getRawBase, rotateRawBase } from '../lib/api/client';
 
 function Boot() {
   return (
@@ -73,7 +74,7 @@ export default function App() {
     function connect() {
       if (isDisposed) return;
       try {
-        const rawBase = import.meta.env.VITE_API_BASE ? String(import.meta.env.VITE_API_BASE).replace(/\/$/, '') : '';
+        const rawBase = getRawBase();
         eventSource = new EventSource(`${rawBase}/api/v1/events/${encodeURIComponent(activeKnotId)}`);
 
         eventSource.onmessage = (event) => {
@@ -120,6 +121,7 @@ export default function App() {
             eventSource.close();
             eventSource = null;
           }
+          rotateRawBase();
           if (!isDisposed) {
             reconnectTimeout = setTimeout(connect, 2000);
           }

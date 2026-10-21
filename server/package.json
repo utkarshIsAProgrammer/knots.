@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "node --watch index.js",
+    "build": "echo 'No server build step needed'",
     "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
