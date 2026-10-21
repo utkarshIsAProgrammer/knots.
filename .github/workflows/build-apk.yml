@@ -75,7 +75,15 @@ jobs:
 
       - name: Prepare APK for Release
         run: |
-          cp client/android/app/build/outputs/apk/debug/app-debug.apk Knots.apk
+          find client/android -name "*.apk"
+          APK_FILE=$(find client/android -name "*.apk" | head -n 1)
+          if [ -n "$APK_FILE" ]; then
+            cp "$APK_FILE" Knots.apk
+            ls -lh Knots.apk
+          else
+            echo "No APK found!"
+            exit 1
+          fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
