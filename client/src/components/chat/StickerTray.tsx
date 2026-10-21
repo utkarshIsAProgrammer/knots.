@@ -1,32 +1,30 @@
 import { useMemo, useRef, useState } from 'react';
 import { Film, ImagePlus, Link2, Plus, Search, Smile, Sticker as StickerIcon, Trash2, X } from 'lucide-react';
 import { ALL_EMOJIS, type EmojiEntry } from '../../lib/emojis';
+import { normalizeMediaUrl } from '../../lib/mediaUrl';
 import { cn } from '../../lib/cn';
 import { toast } from '../../features/toast';
 
 type TrayTab = 'emoji' | 'gifs' | 'stickers';
 
-const DEFAULT_GIFS = [
-  'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif', // Thumbs up
-  'https://media.giphy.com/media/NEvPzZ8bdvV4Y/giphy.gif', // Nod
-  'https://media.giphy.com/media/bC9czlgCMtw4cj8RgH/giphy.gif', // Laugh
-  'https://media.giphy.com/media/26ufdipQqU2lhNA4g/giphy.gif', // Mind blown
-  'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif', // Celebration
-  'https://media.giphy.com/media/jpbnoe3UIa8TU8LM13/giphy.gif', // Vibing cat
-  'https://media.giphy.com/media/YQitE4YNQNahy/giphy.gif', // Matrix hacker
-  'https://media.giphy.com/media/gl0mkIZOW6Nwc/giphy.gif'  // Popcorn
-];
-
-const DEFAULT_STICKERS = [
-  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f525.png', // Fire
-  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f44d.png', // Thumbs up
-  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/2764.png',  // Red heart
-  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4af.png', // 100
-  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f680.png', // Rocket
-  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f512.png', // Lock
-  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f480.png', // Skull
-  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/2728.png'  // Sparkles
-];
+const OLD_DEFAULTS = new Set([
+  'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif',
+  'https://media.giphy.com/media/NEvPzZ8bdvV4Y/giphy.gif',
+  'https://media.giphy.com/media/bC9czlgCMtw4cj8RgH/giphy.gif',
+  'https://media.giphy.com/media/26ufdipQqU2lhNA4g/giphy.gif',
+  'https://media.giphy.com/media/artj92V8o75VPL7AeQ/giphy.gif',
+  'https://media.giphy.com/media/jpbnoe3UIa8TU8LM13/giphy.gif',
+  'https://media.giphy.com/media/YQitE4YNQNahy/giphy.gif',
+  'https://media.giphy.com/media/gl0mkIZOW6Nwc/giphy.gif',
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f525.png',
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f44d.png',
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/2764.png',
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4af.png',
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f680.png',
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f512.png',
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f480.png',
+  'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/2728.png'
+]);
 
 export function StickerTray({
   onEmoji,
@@ -42,7 +40,9 @@ export function StickerTray({
   const [customGifs, setCustomGifs] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('knots_custom_gifs');
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed.filter((url) => typeof url === 'string' && !OLD_DEFAULTS.has(url)) : [];
     } catch {
       return [];
     }
@@ -52,27 +52,13 @@ export function StickerTray({
   const [customStickers, setCustomStickers] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem('knots_custom_stickers');
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed.filter((url) => typeof url === 'string' && !OLD_DEFAULTS.has(url)) : [];
     } catch {
       return [];
     }
   });
-
-  const allGifs = useMemo(() => {
-    const list = [...customGifs];
-    for (const g of DEFAULT_GIFS) {
-      if (!list.includes(g)) list.push(g);
-    }
-    return list;
-  }, [customGifs]);
-
-  const allStickers = useMemo(() => {
-    const list = [...customStickers];
-    for (const s of DEFAULT_STICKERS) {
-      if (!list.includes(s)) list.push(s);
-    }
-    return list;
-  }, [customStickers]);
 
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [urlDraft, setUrlDraft] = useState('');
@@ -161,17 +147,58 @@ export function StickerTray({
     e.target.value = '';
   };
 
-  // Handle custom sticker upload
+  // Handle custom sticker upload (preserves animated WebP, GIF, APNG, SVG frames)
   const handleUploadSticker = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File too large', 'Please choose an image under 5MB.');
+      e.target.value = '';
+      return;
+    }
+
+    const type = file.type.toLowerCase();
+    const name = file.name.toLowerCase();
+    const isAnimatedOrVector =
+      type === 'image/gif' ||
+      type === 'image/webp' ||
+      type === 'image/apng' ||
+      type === 'image/svg+xml' ||
+      name.endsWith('.gif') ||
+      name.endsWith('.webp') ||
+      name.endsWith('.apng') ||
+      name.endsWith('.svg');
+
+    // For animated formats (WebP, GIF, APNG, SVG) or images under 800KB:
+    // Read raw data URL directly so canvas NEVER strips animation frames!
+    if (isAnimatedOrVector || file.size <= 800 * 1024) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        if (dataUrl) {
+          const updated = [dataUrl, ...customStickers.slice(0, 49)];
+          setCustomStickers(updated);
+          try {
+            localStorage.setItem('knots_custom_stickers', JSON.stringify(updated));
+            toast.success('Custom sticker added');
+          } catch {
+            toast.error('Storage limit reached', 'Please remove an old sticker first.');
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+      e.target.value = '';
+      return;
+    }
+
+    // For large static JPEG/PNG files (>800KB): downscale on canvas
     const reader = new FileReader();
     reader.onload = (ev) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        const maxDim = 240;
+        const maxDim = 320;
         let w = img.width;
         let h = img.height;
         if (w > h) {
@@ -185,18 +212,20 @@ export function StickerTray({
             h = maxDim;
           }
         }
-        canvas.width = w;
-        canvas.height = h;
+        canvas.width = Math.round(w);
+        canvas.height = Math.round(h);
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(img, 0, 0, w, h);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           const dataUrl = canvas.toDataURL('image/webp', 0.9);
           const updated = [dataUrl, ...customStickers.slice(0, 49)];
           setCustomStickers(updated);
           try {
             localStorage.setItem('knots_custom_stickers', JSON.stringify(updated));
             toast.success('Custom sticker added');
-          } catch {}
+          } catch {
+            toast.error('Storage limit reached', 'Please remove an old sticker first.');
+          }
         }
       };
       img.src = ev.target?.result as string;
@@ -205,29 +234,35 @@ export function StickerTray({
     e.target.value = '';
   };
 
-  // Add custom item by URL
+  // Add custom item by URL with automatic Google Image & Giphy normalization
   const handleAddUrl = () => {
-    const trimmed = urlDraft.trim();
-    if (!trimmed) return;
-    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://') && !trimmed.startsWith('data:')) {
+    const raw = urlDraft.trim();
+    if (!raw) return;
+    const cleanUrl = normalizeMediaUrl(raw);
+
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://') && !cleanUrl.startsWith('data:')) {
       toast.error('Invalid URL', 'Please enter a valid HTTP or HTTPS link.');
       return;
     }
 
     if (tab === 'gifs') {
-      const updated = [trimmed, ...customGifs.slice(0, 49)];
+      const updated = [cleanUrl, ...customGifs.slice(0, 49)];
       setCustomGifs(updated);
       try {
         localStorage.setItem('knots_custom_gifs', JSON.stringify(updated));
         toast.success('Custom GIF added');
-      } catch {}
+      } catch {
+        toast.error('Storage full', 'Could not save GIF.');
+      }
     } else {
-      const updated = [trimmed, ...customStickers.slice(0, 49)];
+      const updated = [cleanUrl, ...customStickers.slice(0, 49)];
       setCustomStickers(updated);
       try {
         localStorage.setItem('knots_custom_stickers', JSON.stringify(updated));
         toast.success('Custom sticker added');
-      } catch {}
+      } catch {
+        toast.error('Storage full', 'Could not save sticker.');
+      }
     }
     setUrlDraft('');
     setShowUrlInput(false);
@@ -346,7 +381,7 @@ export function StickerTray({
       <input
         ref={stickerFileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/webp,image/gif,image/png,image/svg+xml,image/apng,image/*"
         onChange={handleUploadSticker}
         className="hidden"
       />
@@ -462,12 +497,12 @@ export function StickerTray({
           )}
 
           {/* Grid or Empty State */}
-          {allGifs.length === 0 ? (
+          {customGifs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 px-4 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg">
               <Film size={24} className="text-zinc-400 dark:text-zinc-600 mb-2" />
               <p className="text-[13px] font-medium text-zinc-800 dark:text-zinc-300">No GIFs available</p>
               <p className="text-[11.5px] text-zinc-500 mt-0.5 max-w-[200px]">
-                Upload your own .gif files or paste a direct GIF link. Press and hold custom GIFs to delete.
+                Upload your own .gif files or paste a direct GIF link. Press and hold to delete.
               </p>
               <div className="flex gap-2 mt-3">
                 <button
@@ -488,56 +523,53 @@ export function StickerTray({
             </div>
           ) : (
             <div className="no-scrollbar grid max-h-60 grid-cols-2 gap-1.5 overflow-y-auto px-0.5 touch-pan-y overscroll-contain">
-              {allGifs.map((url, idx) => {
-                const isCustom = idx < customGifs.length;
-                return (
-                  <div
-                    key={`${url.slice(0, 32)}-${idx}`}
-                    onTouchStart={isCustom ? (e) => startLongPress('gif', idx, e) : undefined}
-                    onTouchMove={isCustom ? checkTouchMove : undefined}
-                    onTouchEnd={isCustom ? cancelLongPress : undefined}
-                    onMouseDown={isCustom ? (e) => startLongPress('gif', idx, e) : undefined}
-                    onMouseUp={isCustom ? cancelLongPress : undefined}
-                    onMouseLeave={isCustom ? cancelLongPress : undefined}
-                    onContextMenu={isCustom ? (e) => {
-                      e.preventDefault();
-                      setDeleteConfirm({ type: 'gif', index: idx });
-                    } : undefined}
-                    className="group relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-zinc-100 dark:bg-[#000000] border border-zinc-200 dark:border-zinc-800 transition-transform hover:scale-[1.02] active:scale-95"
+              {customGifs.map((url, idx) => (
+                <div
+                  key={`${url.slice(0, 32)}-${idx}`}
+                  onTouchStart={(e) => startLongPress('gif', idx, e)}
+                  onTouchMove={checkTouchMove}
+                  onTouchEnd={cancelLongPress}
+                  onMouseDown={(e) => startLongPress('gif', idx, e)}
+                  onMouseUp={cancelLongPress}
+                  onMouseLeave={cancelLongPress}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setDeleteConfirm({ type: 'gif', index: idx });
+                  }}
+                  className="group relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-zinc-100 dark:bg-[#000000] border border-zinc-200 dark:border-zinc-800 transition-transform hover:scale-[1.02] active:scale-95"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (didLongPress.current) {
+                        didLongPress.current = false;
+                        return;
+                      }
+                      onSticker(url);
+                    }}
+                    className="h-full w-full"
                   >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (didLongPress.current) {
-                          didLongPress.current = false;
-                          return;
-                        }
-                        onSticker(url);
-                      }}
-                      className="h-full w-full"
-                    >
-                      <img
-                        src={url}
-                        alt="GIF"
-                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
-                      />
-                    </button>
-                    {isCustom && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteConfirm({ type: 'gif', index: idx });
-                        }}
-                        title="Remove GIF (or long press)"
-                        className="absolute top-1 right-1 grid h-5 w-5 place-items-center rounded-md bg-black/90 text-red-400 border border-zinc-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/20"
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                    <img
+                      src={url}
+                      alt="GIF"
+                      referrerPolicy="no-referrer"
+                      loading="lazy"
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirm({ type: 'gif', index: idx });
+                    }}
+                    title="Remove GIF (or long press)"
+                    className="absolute top-1 right-1 grid h-5 w-5 place-items-center rounded-md bg-black/90 text-red-400 border border-zinc-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/20"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -549,7 +581,7 @@ export function StickerTray({
           {/* Header Actions */}
           <div className="flex items-center justify-between px-1 pb-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              Stickers ({allStickers.length})
+              Stickers {customStickers.length > 0 && `(${customStickers.length})`}
             </span>
             <div className="flex items-center gap-1.5">
               <button
@@ -602,7 +634,7 @@ export function StickerTray({
           )}
 
           {/* Grid or Empty State */}
-          {allStickers.length === 0 ? (
+          {customStickers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 px-4 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg">
               <ImagePlus size={24} className="text-zinc-400 dark:text-zinc-600 mb-2" />
               <p className="text-[13px] font-medium text-zinc-800 dark:text-zinc-300">No stickers available</p>
@@ -628,56 +660,53 @@ export function StickerTray({
             </div>
           ) : (
             <div className="no-scrollbar grid max-h-60 grid-cols-4 gap-1.5 overflow-y-auto px-0.5 touch-pan-y overscroll-contain">
-              {allStickers.map((src, idx) => {
-                const isCustom = idx < customStickers.length;
-                return (
-                  <div
-                    key={`${src.slice(0, 32)}-${idx}`}
-                    onTouchStart={isCustom ? (e) => startLongPress('sticker', idx, e) : undefined}
-                    onTouchMove={isCustom ? checkTouchMove : undefined}
-                    onTouchEnd={isCustom ? cancelLongPress : undefined}
-                    onMouseDown={isCustom ? (e) => startLongPress('sticker', idx, e) : undefined}
-                    onMouseUp={isCustom ? cancelLongPress : undefined}
-                    onMouseLeave={isCustom ? cancelLongPress : undefined}
-                    onContextMenu={isCustom ? (e) => {
-                      e.preventDefault();
-                      setDeleteConfirm({ type: 'sticker', index: idx });
-                    } : undefined}
-                    className="group relative aspect-square rounded-lg bg-zinc-100 dark:bg-[#000000] border border-zinc-200 dark:border-zinc-800 p-1 transition-transform hover:scale-105"
+              {customStickers.map((src, idx) => (
+                <div
+                  key={`${src.slice(0, 32)}-${idx}`}
+                  onTouchStart={(e) => startLongPress('sticker', idx, e)}
+                  onTouchMove={checkTouchMove}
+                  onTouchEnd={cancelLongPress}
+                  onMouseDown={(e) => startLongPress('sticker', idx, e)}
+                  onMouseUp={cancelLongPress}
+                  onMouseLeave={cancelLongPress}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setDeleteConfirm({ type: 'sticker', index: idx });
+                  }}
+                  className="group relative aspect-square rounded-lg bg-zinc-100 dark:bg-[#000000] border border-zinc-200 dark:border-zinc-800 p-1 transition-transform hover:scale-105"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (didLongPress.current) {
+                        didLongPress.current = false;
+                        return;
+                      }
+                      onSticker(src);
+                    }}
+                    className="h-full w-full flex items-center justify-center"
                   >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (didLongPress.current) {
-                          didLongPress.current = false;
-                          return;
-                        }
-                        onSticker(src);
-                      }}
-                      className="h-full w-full flex items-center justify-center"
-                    >
-                      <img
-                        src={src}
-                        alt="Sticker"
-                        className="max-h-full max-w-full object-contain pointer-events-none"
-                      />
-                    </button>
-                    {isCustom && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteConfirm({ type: 'sticker', index: idx });
-                        }}
-                        title="Remove sticker (or long press)"
-                        className="absolute top-1 right-1 grid h-5 w-5 place-items-center rounded-md bg-black/90 text-red-400 border border-zinc-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/20"
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                    <img
+                      src={src}
+                      alt="Sticker"
+                      referrerPolicy="no-referrer"
+                      loading="lazy"
+                      className="max-h-full max-w-full object-contain pointer-events-none"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirm({ type: 'sticker', index: idx });
+                    }}
+                    title="Remove sticker (or long press)"
+                    className="absolute top-1 right-1 grid h-5 w-5 place-items-center rounded-md bg-black/90 text-red-400 border border-zinc-800 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500/20"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>

@@ -116,6 +116,9 @@ export const ALL_EMOJIS: EmojiEntry[] = [
   { emoji: '👽', name: 'alien', category: 'smileys', keywords: ['ufo', 'extraterrestrial', 'space'] },
   { emoji: '👾', name: 'alien monster', category: 'smileys', keywords: ['arcade', 'game', 'space invaders', 'retro'] },
   { emoji: '🤖', name: 'robot', category: 'smileys', keywords: ['bot', 'ai', 'android', 'tech'] },
+  { emoji: '🗿', name: 'moai', category: 'smileys', keywords: ['stone', 'easter island', 'sigma', 'chad', 'statue', 'bruh'] },
+  { emoji: '🤦', name: 'person facepalming', category: 'smileys', keywords: ['facepalm', 'disappointed', 'smh'] },
+  { emoji: '🤷', name: 'person shrugging', category: 'smileys', keywords: ['shrug', 'whatever', 'idk', 'who knows'] },
 
   // --- Gestures & People ---
   { emoji: '👋', name: 'waving hand', category: 'gestures', keywords: ['wave', 'hello', 'bye', 'hi'] },
@@ -159,6 +162,7 @@ export const ALL_EMOJIS: EmojiEntry[] = [
   { emoji: '🫀', name: 'anatomical heart', category: 'gestures', keywords: ['heart', 'organ', 'pulse'] },
   { emoji: '👅', name: 'tongue', category: 'gestures', keywords: ['taste', 'lick', 'tongue'] },
   { emoji: '👄', name: 'mouth', category: 'gestures', keywords: ['lips', 'kiss', 'talk'] },
+  { emoji: '💅', name: 'nail polish', category: 'gestures', keywords: ['slay', 'nails', 'carefree', 'beauty'] },
   { emoji: '🫂', name: 'people hugging', category: 'gestures', keywords: ['hug', 'embrace', 'comfort', 'love'] },
 
   // --- Hearts & Love ---
@@ -195,6 +199,7 @@ export const ALL_EMOJIS: EmojiEntry[] = [
   { emoji: '🐼', name: 'panda', category: 'animals', keywords: ['panda', 'bamboo', 'bear'] },
   { emoji: '🐨', name: 'koala', category: 'animals', keywords: ['koala', 'australia'] },
   { emoji: '🦁', name: 'lion', category: 'animals', keywords: ['lion', 'king', 'safari', 'roar'] },
+  { emoji: '🐐', name: 'goat', category: 'animals', keywords: ['goat', 'greatest of all time', 'animal'] },
   { emoji: '🐯', name: 'tiger face', category: 'animals', keywords: ['tiger', 'wild', 'cat'] },
   { emoji: '🦄', name: 'unicorn', category: 'animals', keywords: ['magic', 'fantasy', 'rainbow'] },
   { emoji: '🐴', name: 'horse face', category: 'animals', keywords: ['horse', 'pony'] },
@@ -307,6 +312,8 @@ export const ALL_EMOJIS: EmojiEntry[] = [
   { emoji: '🎲', name: 'game die', category: 'objects', keywords: ['dice', 'luck', 'chance', 'game'] },
   { emoji: '🎯', name: 'direct hit', category: 'objects', keywords: ['bullseye', 'target', 'goal', 'hit'] },
   { emoji: '🏆', name: 'trophy', category: 'objects', keywords: ['winner', 'champion', 'first', 'prize'] },
+  { emoji: '👑', name: 'crown', category: 'objects', keywords: ['crown', 'king', 'queen', 'royal', 'boss'] },
+  { emoji: '🧢', name: 'billed cap', category: 'objects', keywords: ['cap', 'hat', 'no cap', 'lie'] },
   { emoji: '🥇', name: '1st place medal', category: 'objects', keywords: ['gold', 'first', 'medal', 'winner'] },
   { emoji: '⚽', name: 'soccer ball', category: 'objects', keywords: ['football', 'soccer', 'sport'] },
   { emoji: '🏀', name: 'basketball', category: 'objects', keywords: ['nba', 'ball', 'sport'] },
@@ -335,6 +342,7 @@ export const ALL_EMOJIS: EmojiEntry[] = [
   { emoji: '✅', name: 'check mark button', category: 'symbols', keywords: ['check', 'done', 'tick', 'approved', 'yes'] },
   { emoji: '❌', name: 'cross mark', category: 'symbols', keywords: ['x', 'no', 'wrong', 'delete', 'cancel'] },
   { emoji: '⚠️', name: 'warning', category: 'symbols', keywords: ['alert', 'danger', 'caution', 'warning'] },
+  { emoji: '🚩', name: 'triangular flag', category: 'symbols', keywords: ['red flag', 'flag', 'warning', 'danger'] },
   { emoji: '⛔', name: 'no entry', category: 'symbols', keywords: ['stop', 'forbidden', 'restricted'] },
   { emoji: '🚫', name: 'prohibited', category: 'symbols', keywords: ['no', 'ban', 'forbidden'] },
   { emoji: '🛑', name: 'stop sign', category: 'symbols', keywords: ['stop', 'octagonal', 'halt'] },

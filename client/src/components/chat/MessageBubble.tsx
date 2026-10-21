@@ -277,6 +277,8 @@ function MessageBubbleComponent({
                   <img
                     src={stickerSrc}
                     alt="Sticker"
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
                     className="max-h-52 max-w-52 sm:max-h-60 sm:max-w-60 rounded-lg object-contain drop-shadow-[0_8px_24px_rgba(0,0,0,0.8)] pointer-events-none"
                   />
                 ) : (
