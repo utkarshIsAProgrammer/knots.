@@ -211,45 +211,45 @@ export function formatMessageSnippet(msg?: { type?: string; plaintext?: string |
   if (text.startsWith('{"mediaType":')) {
     try {
       const parsed = JSON.parse(text);
-      if (parsed.mediaType === 'audio') return '🎤 Voice note';
-      if (parsed.mediaType === 'video') return '🎥 Video';
-      if (parsed.mediaType === 'image') return '📷 Photo';
+      if (parsed.mediaType === 'audio') return 'Audio';
+      if (parsed.mediaType === 'video') return 'Video';
+      if (parsed.mediaType === 'image') return 'Photo';
     } catch {}
-    return '📎 Media';
+    return 'Media';
   }
 
-  if (msg.type === 'audio') return '🎤 Voice note';
-  if (msg.type === 'video') return '🎥 Video';
-  if (msg.type === 'image') return '📷 Photo';
-  if (msg.type === 'media') return '📎 Media';
+  if (msg.type === 'audio') return 'Audio';
+  if (msg.type === 'video') return 'Video';
+  if (msg.type === 'image') return 'Photo';
+  if (msg.type === 'media') return 'Media';
 
   // Check if sticker or GIF
   if (msg.type === 'sticker' || Boolean(msg.sticker)) {
     if (text.includes('giphy.com') || text.includes('tenor.com') || text.endsWith('.gif')) {
-      return '🎬 GIF';
+      return 'Gif';
     }
-    return '🎨 Sticker';
+    return 'Sticker';
   }
 
   // Check if text is a data URL or image/gif URL that was sent
   if (text.startsWith('data:image/')) {
-    return '🎨 Sticker';
+    return 'Sticker';
   }
   if (text.includes('giphy.com') || text.includes('tenor.com')) {
-    return '🎬 GIF';
+    return 'Gif';
   }
   if (/^https?:\/\/.*\.(png|jpg|jpeg|webp|gif|svg)($|\?)/i.test(text)) {
-    return text.includes('.gif') ? '🎬 GIF' : '🎨 Sticker';
+    return text.includes('.gif') ? 'Gif' : 'Sticker';
   }
 
   // Check if raw JSON
   if (text.startsWith('{') && text.endsWith('}')) {
     try {
       const parsed = JSON.parse(text);
-      if (parsed.mediaType === 'audio') return '🎤 Voice note';
-      if (parsed.mediaType === 'video') return '🎥 Video';
-      if (parsed.mediaType === 'image') return '📷 Photo';
-      if (parsed.sticker) return '🎨 Sticker';
+      if (parsed.mediaType === 'audio') return 'Audio';
+      if (parsed.mediaType === 'video') return 'Video';
+      if (parsed.mediaType === 'image') return 'Photo';
+      if (parsed.sticker) return 'Sticker';
     } catch {}
   }
 

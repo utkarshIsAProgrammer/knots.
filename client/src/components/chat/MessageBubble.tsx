@@ -140,12 +140,13 @@ function MessageBubbleComponent({
   }, [menu, showFullPicker]);
 
   const openMenu = (x: number, y: number) => {
+    if (deleted) return;
     const coords = getMenuCoordinates(x, y, mine);
     setMenu({ x: coords.posX, y: coords.posY });
   };
 
   const copy = async () => {
-    if (!message.plaintext) return;
+    if (!message.plaintext || deleted) return;
     await navigator.clipboard.writeText(message.plaintext).catch(() => undefined);
     setCopied(true);
     toast.success('Copied to clipboard');
@@ -154,6 +155,7 @@ function MessageBubbleComponent({
 
   // High-performance native touch gesture handling: swipe-to-reply + snappy long press
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (deleted) return;
     const t = e.touches[0];
     touchStart.current = { x: t.clientX, y: t.clientY, time: Date.now() };
     hasTriggeredSwipeHaptic.current = false;
@@ -171,7 +173,7 @@ function MessageBubbleComponent({
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchStart.current) return;
+    if (deleted || !touchStart.current) return;
     const t = e.touches[0];
     const dx = t.clientX - touchStart.current.x;
     const dy = t.clientY - touchStart.current.y;
@@ -215,6 +217,7 @@ function MessageBubbleComponent({
   };
 
   const handleTouchEnd = () => {
+    if (deleted) return;
     if (longPress.current) {
       clearTimeout(longPress.current);
       longPress.current = null;
@@ -241,6 +244,7 @@ function MessageBubbleComponent({
       <div
         onContextMenu={(e) => {
           e.preventDefault();
+          if (deleted) return;
           openMenu(e.clientX, e.clientY);
         }}
         onTouchStart={handleTouchStart}
@@ -280,6 +284,7 @@ function MessageBubbleComponent({
               <button
                 type="button"
                 onClick={(e) => {
+                  if (deleted) return;
                   const r = e.currentTarget.getBoundingClientRect();
                   openMenu(r.left + r.width / 2, r.top + r.height / 2);
                 }}
@@ -435,6 +440,7 @@ function MessageBubbleComponent({
               <button
                 type="button"
                 onClick={(e) => {
+                  if (deleted) return;
                   const r = e.currentTarget.getBoundingClientRect();
                   openMenu(r.left, r.bottom);
                 }}
@@ -459,6 +465,7 @@ function MessageBubbleComponent({
 
       {/* Context Menu Overlay */}
       {menu &&
+        !deleted &&
         createPortal(
           <div
             className="fixed inset-0 z-[1000] flex bg-black/25 dark:bg-black/60 select-none animate-fadeIn"
