@@ -12,6 +12,7 @@ import { usePresence } from '../../features/presence';
 import { useIdentity } from '../../features/identity';
 import { useUI } from '../../features/ui';
 import { shortKnotId } from '../../lib/format';
+import { useGhostStore, getMessagePreview, isMediaMessage } from '../../lib/stealth';
 import type { Contact } from '../../lib/api/types';
 import type { StoredMessage } from '../../lib/storage/db';
 
@@ -24,6 +25,7 @@ export function ContactPanel() {
   const { contactFilter, setContactFilter, activeThread, openThread, openOverlay, setSection } = useUI();
 
   const me = identity?.knotId ?? '';
+  const isGhost = useGhostStore((s) => s.unlocked);
 
   const rows = useMemo(() => {
     const peersMap = new Map<string, { contact: Contact; thread: StoredMessage[] }>();
@@ -55,21 +57,26 @@ export function ContactPanel() {
     return Array.from(peersMap.values())
       .map(({ contact, thread }) => {
         const cLower = contact.knot_id.toLowerCase();
-        const last = thread[thread.length - 1];
-        const unread = thread.filter((m) => m.recipientId === me && m.status !== 'read' && m.status !== 'deleted').length;
+        const previewInfo = getMessagePreview(thread, isGhost, contact.created_at);
+        const unread = thread.filter((m) => {
+          if (m.recipientId !== me || m.status === 'read' || m.status === 'deleted') return false;
+          if (!isGhost && isMediaMessage(m)) return false;
+          return true;
+        }).length;
         const peerMatchKey = Object.keys(peers).find((k) => k.toLowerCase() === cLower);
         const peerState = peerMatchKey ? peers[peerMatchKey] : peers[contact.knot_id];
         return {
           contact,
-          last,
+          preview: previewInfo.text || undefined,
+          previewTime: previewInfo.time,
           unread,
           online: peerState?.isOnline ?? false,
           typing: peerState?.isTyping ?? false,
-          time: last?.createdAt ?? (contact.created_at ? new Date(contact.created_at).getTime() : 0)
+          time: previewInfo.time ?? (contact.created_at ? new Date(contact.created_at).getTime() : 0)
         };
       })
       .sort((a, b) => b.time - a.time);
-  }, [contacts, threads, me, peers]);
+  }, [contacts, threads, me, peers, isGhost]);
 
   const openConvo = (contact: Contact) => {
     openThread(contact.knot_id);
@@ -146,13 +153,13 @@ export function ContactPanel() {
           />
         ) : (
           <div className="space-y-0.5">
-            {rows.map(({ contact, last, unread, online, typing }) => (
+            {rows.map(({ contact, preview, previewTime, unread, online, typing }) => (
               <ContactRow
                 key={contact.knot_id}
                 contact={contact}
                 active={activeThread === contact.knot_id}
-                preview={last?.status === 'deleted' ? 'Message deleted' : last?.plaintext || undefined}
-                previewTime={last ? last.createdAt : undefined}
+                preview={preview}
+                previewTime={previewTime}
                 unread={unread}
                 online={online}
                 typing={typing}

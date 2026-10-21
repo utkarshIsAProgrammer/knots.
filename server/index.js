@@ -6,7 +6,10 @@ const { MongoClient, ObjectId } = require('mongodb');
 const crypto = require('crypto');
 const sha512 = (data) => crypto.createHash('sha512').update(data).digest();
 
+const compression = require('compression');
+
 const app = express();
+app.use(compression());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
@@ -1071,14 +1074,14 @@ app.get('/api/v1/presence/:knotId', (req, res) => {
     return res.json({ success: true, isOnline: false, lastSeen: null, isTyping: false });
   }
 
-  const isOnline = Date.now() - p.lastSeen < 15000; // 15 second heartbeat threshold
-  // Typing strictly expires after 3 seconds of inactivity
+  const isOnline = Date.now() - p.lastSeen < 60000; // 60 second heartbeat threshold (conserves bandwidth)
+  // Typing strictly expires after 4 seconds of inactivity
   const isTyping = Boolean(
     isOnline &&
     p.typingTo &&
     p.typingTo === (peerId ? peerId.trim().toLowerCase() : '') &&
     p.typingAt &&
-    Date.now() - p.typingAt < 3000
+    Date.now() - p.typingAt < 4000
   );
 
   res.json({
@@ -1087,6 +1090,39 @@ app.get('/api/v1/presence/:knotId', (req, res) => {
     lastSeen: p.lastSeen,
     isTyping
   });
+});
+
+// ===== Batch Presence Info (Massively reduces HTTP request volume & Render bandwidth) =====
+app.post('/api/v1/presence/batch', (req, res) => {
+  const { knotIds, peerId } = req.body;
+  if (!Array.isArray(knotIds) || !knotIds.length) {
+    return res.json({ success: true, presences: {} });
+  }
+
+  const presences = {};
+  const now = Date.now();
+  const normalizedPeerId = peerId ? peerId.trim().toLowerCase() : '';
+
+  for (const rawId of knotIds) {
+    const key = (rawId || '').trim().toLowerCase();
+    if (!key) continue;
+    const p = memoryStore.presence.get(key);
+    if (!p) {
+      presences[key] = { isOnline: false, lastSeen: null, isTyping: false };
+    } else {
+      const isOnline = now - p.lastSeen < 60000;
+      const isTyping = Boolean(
+        isOnline &&
+        p.typingTo &&
+        p.typingTo === normalizedPeerId &&
+        p.typingAt &&
+        now - p.typingAt < 4000
+      );
+      presences[key] = { isOnline, lastSeen: p.lastSeen, isTyping };
+    }
+  }
+
+  res.json({ success: true, presences });
 });
 
 // ===== Key Rotation =====
@@ -1174,12 +1210,24 @@ app.get('/api/v1/network/stats', async (req, res) => {
 const path = require('path');
 const fs = require('fs');
 
-// Serve built frontend assets in production if client/dist exists
+// Serve built frontend assets in production with aggressive caching for hashed assets
 const clientDistPath = path.join(__dirname, '../client/dist');
 if (fs.existsSync(clientDistPath)) {
-  app.use(express.static(clientDistPath));
+  app.use(express.static(clientDistPath, {
+    maxAge: '1y',
+    immutable: true,
+    setHeaders: (res, filePath) => {
+      // index.html must never be cached so users always get fresh version & hashes
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      } else if (filePath.includes('/assets/')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    }
+  }));
   app.use((req, res, next) => {
     if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/health')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       return res.sendFile(path.join(clientDistPath, 'index.html'));
     }
     next();

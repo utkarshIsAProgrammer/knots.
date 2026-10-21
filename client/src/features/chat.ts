@@ -44,6 +44,7 @@ interface ChatState {
   markThreadReadByPeer: (peerKnotId?: string, messageId?: string) => Promise<void>;
   retry: (peer: string, id: string, me: string) => Promise<void>;
   purgeThread: (peer: string, me: string) => Promise<void>;
+  cleanLocalExpired: () => void;
   clear: () => void;
 }
 
@@ -140,6 +141,20 @@ export const useChat = create<ChatState>((set, get) => ({
   loading: false,
 
   clear: () => set({ threads: {}, loading: false }),
+
+  cleanLocalExpired: () => {
+    const now = Date.now();
+    set((s) => {
+      let changed = false;
+      const next: Record<string, StoredMessage[]> = {};
+      for (const [k, msgs] of Object.entries(s.threads)) {
+        const filtered = msgs.filter((m) => !m.expiresAt || m.expiresAt > now);
+        if (filtered.length !== msgs.length) changed = true;
+        next[k] = filtered;
+      }
+      return changed ? { threads: next } : s;
+    });
+  },
 
   bootstrap: async () => {
     await sweepExpired();

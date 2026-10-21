@@ -18,6 +18,8 @@ let poller: ReturnType<typeof setInterval> | null = null;
 let typingTimer: ReturnType<typeof setTimeout> | null = null;
 const peerTypingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let currentMe: string | null = null;
+let getPeersFn: (() => string[]) | null = null;
+let visibilityHandler: (() => void) | null = null;
 
 export const usePresence = create<PresenceState>((set, get) => ({
   peers: {},
@@ -26,51 +28,76 @@ export const usePresence = create<PresenceState>((set, get) => ({
 
   start: (me, peers) => {
     currentMe = me;
+    getPeersFn = peers;
     if (get().running) return;
     set({ running: true });
 
-    const send = () => {
-      if (!currentMe) return;
+    const sendHeartbeat = () => {
+      if (!currentMe || (typeof document !== 'undefined' && document.hidden)) return;
       void api.presenceHeartbeat(currentMe, get().typingTo).catch(() => undefined);
     };
-    send();
-    // 4s heartbeat to keep online status active (server timeout is 15s)
-    heartbeat = setInterval(send, 4000);
 
-    // 4s poller for peer presence fallback (SSE pushes typing events in realtime)
-    poller = setInterval(async () => {
-      if (!currentMe) return;
-      const ids = peers();
+    const pollBatch = async () => {
+      if (!currentMe || !getPeersFn || (typeof document !== 'undefined' && document.hidden)) return;
+      const ids = getPeersFn();
       if (!ids.length) return;
-      const currentPeers = get().peers;
-      let changed = false;
-      const next: Record<string, Presence> = { ...currentPeers };
-      await Promise.all(
-        ids.map(async (id) => {
-          try {
-            const res = await api.getPresence(id, currentMe!);
+
+      try {
+        const res = await api.getBatchPresence(ids, currentMe);
+        if (res.success && res.presences) {
+          const currentPeers = get().peers;
+          let changed = false;
+          const next: Record<string, Presence> = { ...currentPeers };
+
+          for (const [id, pres] of Object.entries(res.presences)) {
             const cur = currentPeers[id];
-            if (!cur || cur.isOnline !== res.isOnline || cur.isTyping !== res.isTyping) {
+            if (!cur || cur.isOnline !== pres.isOnline || cur.isTyping !== pres.isTyping) {
               changed = true;
               next[id] = {
-                isOnline: res.isOnline,
-                lastSeen: res.lastSeen,
-                isTyping: res.isTyping
+                isOnline: pres.isOnline,
+                lastSeen: pres.lastSeen,
+                isTyping: pres.isTyping
               };
             }
-          } catch {
-            const cur = currentPeers[id];
-            if (!cur || cur.isOnline !== false || cur.isTyping !== false) {
-              changed = true;
-              next[id] = { isOnline: false, lastSeen: cur?.lastSeen ?? null, isTyping: false };
-            }
           }
-        })
-      );
-      if (changed) {
-        set({ peers: next });
+
+          if (changed) {
+            set({ peers: next });
+          }
+        }
+      } catch {
+        // Network offline or error
       }
-    }, 4000);
+    };
+
+    // Initial triggers
+    sendHeartbeat();
+    void pollBatch();
+
+    // Relaxed intervals (conserves Render bandwidth by 95%)
+    // Server presence timeout is 60s; 25s heartbeat keeps online status crisp
+    heartbeat = setInterval(sendHeartbeat, 25000);
+    // 30s batch polling for contacts (SSE handles realtime typing & messages)
+    poller = setInterval(pollBatch, 30000);
+
+    // Pause timers when tab is hidden, resume immediately when tab is focused
+    if (typeof document !== 'undefined') {
+      visibilityHandler = () => {
+        if (document.hidden) {
+          if (heartbeat) clearInterval(heartbeat);
+          if (poller) clearInterval(poller);
+          heartbeat = null;
+          poller = null;
+        } else {
+          // Immediately beat and poll once, then restart relaxed intervals
+          sendHeartbeat();
+          void pollBatch();
+          if (!heartbeat) heartbeat = setInterval(sendHeartbeat, 25000);
+          if (!poller) poller = setInterval(pollBatch, 30000);
+        }
+      };
+      document.addEventListener('visibilitychange', visibilityHandler);
+    }
   },
 
   stop: () => {
@@ -78,9 +105,16 @@ export const usePresence = create<PresenceState>((set, get) => ({
     if (poller) clearInterval(poller);
     if (typingTimer) clearTimeout(typingTimer);
     heartbeat = poller = typingTimer = null;
+
+    if (typeof document !== 'undefined' && visibilityHandler) {
+      document.removeEventListener('visibilitychange', visibilityHandler);
+      visibilityHandler = null;
+    }
+
     for (const t of peerTypingTimers.values()) clearTimeout(t);
     peerTypingTimers.clear();
     currentMe = null;
+    getPeersFn = null;
     set({ running: false, typingTo: null });
   },
 
@@ -89,7 +123,7 @@ export const usePresence = create<PresenceState>((set, get) => ({
     const existing = get().peers;
     // Find canonical key
     const canonicalKey = Object.keys(existing).find((k) => k.toLowerCase() === peerId.toLowerCase()) || peerId;
-    
+
     // Clear any previous reset timer
     const prevTimer = peerTypingTimers.get(canonicalKey.toLowerCase());
     if (prevTimer) {
@@ -120,7 +154,7 @@ export const usePresence = create<PresenceState>((set, get) => ({
           }
         }));
         peerTypingTimers.delete(canonicalKey.toLowerCase());
-      }, 3000);
+      }, 3500);
       peerTypingTimers.set(canonicalKey.toLowerCase(), resetTimer);
     }
   },

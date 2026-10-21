@@ -6,7 +6,7 @@ import { Popover } from '../ui/Popover';
 import { StickerTray } from './StickerTray';
 import { durationLabel } from '../../lib/format';
 import type { MessageType, ReplyRef } from '../../lib/api/types';
-import { isGhostUnlocked, isPeerAuthorizedForMedia, processGhostCommand } from '../../lib/stealth';
+import { useGhostStore, processGhostCommand } from '../../lib/stealth';
 import { uploadEncryptedMedia } from '../../lib/media/e2eeMedia';
 import { VoiceNoteRecorder } from './VoiceNoteRecorder';
 import { toast } from '../../features/toast';
@@ -71,11 +71,10 @@ function ComposerComponent({
     }
   }, [replyTo]);
 
-  // Stealth Shield check (Approach A):
-  // True ONLY if Ghost Mode is unlocked on this device AND the peer is in your authorized circle
-  const isMediaPermitted =
-    isGhostUnlocked() &&
-    (isPeerAuthorizedForMedia(peer) || (Boolean(peer) && Boolean(me) && peer?.toLowerCase() === me?.toLowerCase()));
+  // Ghost Mode check:
+  // When Ghost Mode is unlocked, voice notes, photos and video sending are enabled
+  const isGhost = useGhostStore((s) => s.unlocked);
+  const isMediaPermitted = isGhost;
 
   const grow = () => {
     const el = areaRef.current;
@@ -86,12 +85,12 @@ function ComposerComponent({
     el.style.overflowY = el.scrollHeight > 120 ? 'auto' : 'hidden';
   };
 
-  const submit = () => {
+  const submit = async () => {
     const text = value.trim();
     if (!text) return;
 
-    // Check for stealth ghost commands (e.g. //ghost, //lock, //allow, //cloud ...)
-    const ghostRes = processGhostCommand(text, peer);
+    // Check for stealth ghost commands (e.g. //ghost <key>, //lock, //allow, //cloud ...)
+    const ghostRes = await processGhostCommand(text, peer);
     if (ghostRes.isGhostCommand) {
       setValue('');
       setStealthRevision((r) => r + 1);
@@ -127,8 +126,12 @@ function ComposerComponent({
     try {
       const payload = await uploadEncryptedMedia(audioBlob, 'audio', duration);
       onSend(JSON.stringify(payload), { replyTo, ttlSeconds: ttl, type: 'media' });
-    } catch {
-      toast.error('Voice note failed', 'Could not encrypt audio note.');
+    } catch (err: any) {
+      if (err?.message === 'CLOUDINARY_NOT_CONFIGURED') {
+        toast.error('Cloudinary not connected', 'Connect Cloudinary via //cloud <cloudName> <preset> to prevent server bandwidth usage.');
+      } else {
+        toast.error('Voice note failed', err?.message || 'Could not upload audio note.');
+      }
     } finally {
       setIsUploading(false);
     }
@@ -155,8 +158,12 @@ function ComposerComponent({
     try {
       const payload = await uploadEncryptedMedia(file, isVideo ? 'video' : 'image');
       onSend(JSON.stringify(payload), { replyTo, ttlSeconds: ttl, type: 'media' });
-    } catch {
-      toast.error('Upload failed', 'Could not encrypt and upload media.');
+    } catch (err: any) {
+      if (err?.message === 'CLOUDINARY_NOT_CONFIGURED') {
+        toast.error('Cloudinary not connected', 'Connect Cloudinary via //cloud <cloudName> <preset> to prevent server bandwidth usage.');
+      } else {
+        toast.error('Upload failed', err?.message || 'Could not upload media.');
+      }
     } finally {
       setIsUploading(false);
     }

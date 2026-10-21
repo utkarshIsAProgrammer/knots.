@@ -218,6 +218,16 @@ export const api = {
     );
   },
 
+  async getBatchPresence(knotIds: string[], peerId?: string) {
+    return request<{
+      success: boolean;
+      presences: Record<string, { isOnline: boolean; lastSeen: number | null; isTyping: boolean }>;
+    }>('/presence/batch', {
+      method: 'POST',
+      body: JSON.stringify({ knotIds, peerId: peerId || null })
+    });
+  },
+
   rotateKeys(payload: { oldKnotId: string; newKnotId: string; newPublicKey: string; newEd25519Key?: string }) {
     return request<{ success: boolean; rotated: boolean; newKnotId: string }>('/keys/rotate', {
       method: 'POST',

@@ -17,6 +17,7 @@ import { useUI } from '../../features/ui';
 import { toast } from '../../features/toast';
 import { shortKnotId } from '../../lib/format';
 import { useVisualViewport, useIsDesktop } from '../../lib/hooks';
+import { useGhostStore, isMediaMessage, formatMessageSnippet } from '../../lib/stealth';
 import type { ReplyRef } from '../../lib/api/types';
 import type { StoredMessage } from '../../lib/storage/db';
 
@@ -91,9 +92,16 @@ export function ChatView() {
   const isDesktop = useIsDesktop();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+  const isGhost = useGhostStore((s) => s.unlocked);
+
+  const visibleMessages = useMemo(() => {
+    if (isGhost) return messages;
+    return messages.filter((m) => !isMediaMessage(m));
+  }, [messages, isGhost]);
+
   const visible = query
-    ? messages.filter((m) => m.plaintext.toLowerCase().includes(query.toLowerCase()))
-    : messages;
+    ? visibleMessages.filter((m) => m.plaintext.toLowerCase().includes(query.toLowerCase()))
+    : visibleMessages;
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = scrollContainerRef.current;
@@ -140,7 +148,8 @@ export function ChatView() {
 
   const handleReply = useCallback((m: StoredMessage) => {
     setEditing(null);
-    setReplyTo({ id: m.id, text: m.plaintext.slice(0, 90), sender: m.senderId });
+    const snippet = formatMessageSnippet(m);
+    setReplyTo({ id: m.id, text: snippet.slice(0, 90), sender: m.senderId });
   }, []);
 
   const handleForward = useCallback((m: StoredMessage) => {

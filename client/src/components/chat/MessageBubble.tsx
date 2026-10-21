@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Check,
@@ -21,7 +21,7 @@ import { ReactionPill } from './ReactionPill';
 import { FullReactionPicker } from './FullReactionPicker';
 import { EncryptedMediaBubble } from './EncryptedMediaBubble';
 import { parseMediaPayload } from '../../lib/media/e2eeMedia';
-import { markPeerAuthorized } from '../../lib/stealth';
+import { markPeerAuthorized, useGhostStore, isMediaMessage } from '../../lib/stealth';
 import { toast } from '../../features/toast';
 
 const QUICK_REACTIONS = ['👍', '❤️', '🔥', '😂', '😮', '🙏'];
@@ -88,7 +88,7 @@ function MessageBubbleComponent({
   const deleted = message.status === 'deleted';
   const stickerSrc = message.sticker || (message.type === 'sticker' ? message.plaintext : null);
   const sticker = message.type === 'sticker' && Boolean(stickerSrc);
-  const mediaPayload = parseMediaPayload(message.plaintext);
+  const mediaPayload = useMemo(() => parseMediaPayload(message.plaintext), [message.plaintext]);
 
   useEffect(() => {
     if (mediaPayload && message.senderId && !mine) {
@@ -228,6 +228,13 @@ function MessageBubbleComponent({
     setIsSwiping(false);
     touchStart.current = null;
   };
+
+  const isGhost = useGhostStore((s) => s.unlocked);
+
+  // Stealth mode enforcement: completely hide encrypted media bubbles in normal mode
+  if (!isGhost && (isMediaMessage(message) || mediaPayload !== null)) {
+    return null;
+  }
 
   return (
     <>

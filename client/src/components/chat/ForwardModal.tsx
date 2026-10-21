@@ -6,6 +6,7 @@ import { Input } from '../ui/Input';
 import { useContacts } from '../../features/contacts';
 import { useChat } from '../../features/chat';
 import { shortKnotId } from '../../lib/format';
+import { formatMessageSnippet } from '../../lib/stealth';
 import type { StoredMessage } from '../../lib/storage/db';
 
 interface ForwardModalProps {
@@ -82,7 +83,7 @@ export function ForwardModal({ open, message, me, onClose, onForward }: ForwardM
           <div className="flex items-center gap-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 p-2.5">
             <Forward size={16} className="text-zinc-500 shrink-0" />
             <p className="min-w-0 flex-1 truncate text-xs text-zinc-600 dark:text-zinc-300">
-              {message.type === 'sticker' ? '🎨 [Sticker]' : message.plaintext || 'Empty message'}
+              {formatMessageSnippet(message) || 'Empty message'}
             </p>
           </div>
         )}

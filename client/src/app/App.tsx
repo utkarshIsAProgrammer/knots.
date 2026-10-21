@@ -48,13 +48,13 @@ export default function App() {
     return () => usePresence.getState().stop();
   }, [knotId]);
 
-  // 1-second auto-burn timer sweep
+  // 1-second auto-burn timer sweep (cleans local storage & state without network calls)
   useEffect(() => {
     if (!knotId) return;
     const burnInterval = setInterval(() => {
       void sweepExpired().then((swept) => {
         if (swept > 0) {
-          void useChat.getState().refresh();
+          useChat.getState().cleanLocalExpired();
         }
       });
     }, 1000);
@@ -141,14 +141,16 @@ export default function App() {
     };
   }, [knotId]);
 
-  // Relaxed background fallback poller (SSE provides <10ms instant push; poller is just a safety net)
-  const [pollInterval, setPollInterval] = useState(15000);
+  // Bandwidth-optimized fallback poller (SSE provides <10ms instant push; poller is just a safety net)
+  const [isTabVisible, setIsTabVisible] = useState(() => (typeof document !== 'undefined' ? !document.hidden : true));
+
   useEffect(() => {
     const handleVisibility = () => {
-      const isHidden = document.hidden;
-      setPollInterval(isHidden ? 30000 : 15000);
-      if (!isHidden && knotId) {
+      const visible = !document.hidden;
+      setIsTabVisible(visible);
+      if (visible && knotId) {
         void useChat.getState().refresh();
+        void useContacts.getState().load();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -157,12 +159,12 @@ export default function App() {
 
   usePolling(
     () => {
-      if (!useIdentity.getState().identity) return;
+      if (!useIdentity.getState().identity || !isTabVisible) return;
       void useChat.getState().refresh();
       void useContacts.getState().load();
     },
-    pollInterval,
-    !!knotId
+    60000,
+    !!knotId && isTabVisible
   );
 
   return (

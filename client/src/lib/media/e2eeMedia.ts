@@ -131,57 +131,48 @@ export async function uploadEncryptedMedia(
 
   const cfg = getCloudinaryConfig();
 
-  // 3. If Cloudinary is configured, upload directly to Cloudinary CDN
-  if (cfg?.cloudName && cfg?.uploadPreset) {
-    try {
-      const formData = new FormData();
-      // Generate a random UUID filename so no identifiable info exists
-      const randomName = `${crypto.randomUUID()}.enc`;
-      formData.append('file', encryptedBlob, randomName);
-      formData.append('upload_preset', cfg.uploadPreset);
-
-      const endpoint = `https://api.cloudinary.com/v1_1/${encodeURIComponent(cfg.cloudName)}/raw/upload`;
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (res.ok) {
-        const json = await res.json();
-        const secureUrl = json.secure_url || json.url;
-        if (secureUrl) {
-          return {
-            mediaType,
-            url: secureUrl,
-            key: keyB64,
-            iv: ivB64,
-            mimeType: sanitizedBlob.type || 'application/octet-stream',
-            duration,
-            size: sanitizedBlob.size
-          };
-        }
-      }
-    } catch {
-      // Fallback below
-    }
+  // 3. Upload directly to Cloudinary CDN (Bypasses Render & MongoDB completely)
+  if (!cfg?.cloudName || !cfg?.uploadPreset) {
+    throw new Error('CLOUDINARY_NOT_CONFIGURED');
   }
 
-  // 4. Fallback: store as raw encrypted base64 payload
-  const reader = new FileReader();
-  const encryptedBase64Url = await new Promise<string>((resolve) => {
-    reader.onload = () => resolve(reader.result as string);
-    reader.readAsDataURL(encryptedBlob);
-  });
+  try {
+    const formData = new FormData();
+    // Generate a random UUID filename so no identifiable info exists
+    const randomName = `${crypto.randomUUID()}.enc`;
+    formData.append('file', encryptedBlob, randomName);
+    formData.append('upload_preset', cfg.uploadPreset);
 
-  return {
-    mediaType,
-    url: encryptedBase64Url,
-    key: keyB64,
-    iv: ivB64,
-    mimeType: sanitizedBlob.type || 'application/octet-stream',
-    duration,
-    size: sanitizedBlob.size
-  };
+    const endpoint = `https://api.cloudinary.com/v1_1/${encodeURIComponent(cfg.cloudName)}/raw/upload`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      const msg = errJson?.error?.message || `HTTP ${res.status}`;
+      throw new Error(`Upload rejected by Cloudinary: ${msg}`);
+    }
+
+    const json = await res.json();
+    const secureUrl = json.secure_url || json.url;
+    if (!secureUrl) {
+      throw new Error('No secure URL returned by Cloudinary');
+    }
+
+    return {
+      mediaType,
+      url: secureUrl,
+      key: keyB64,
+      iv: ivB64,
+      mimeType: sanitizedBlob.type || 'application/octet-stream',
+      duration,
+      size: sanitizedBlob.size
+    };
+  } catch (err) {
+    throw err;
+  }
 }
 
 // In-memory cache for decrypted blob URLs (prevents re-decrypting on every render)
