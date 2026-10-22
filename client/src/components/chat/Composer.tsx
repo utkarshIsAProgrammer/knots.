@@ -29,6 +29,7 @@ interface ComposerProps {
   ) => void;
   onTyping: () => void;
   onStopTyping?: () => void;
+  onRecording?: (isRecording: boolean) => void;
   replyTo: ReplyRef | null;
   onClearReply: () => void;
   editing: string | null;
@@ -44,6 +45,7 @@ function ComposerComponent({
   onSendMedia,
   onTyping,
   onStopTyping,
+  onRecording,
   replyTo,
   onClearReply,
   editing,
@@ -124,8 +126,17 @@ function ComposerComponent({
     });
   };
 
+  useEffect(() => {
+    return () => {
+      if (isRecordingVoice) {
+        onRecording?.(false);
+      }
+    };
+  }, [isRecordingVoice, onRecording]);
+
   const handleSendVoice = (audioBlob: Blob, duration: number) => {
     setIsRecordingVoice(false);
+    onRecording?.(false);
     if (onSendMedia) {
       onSendMedia(audioBlob, 'audio', { replyTo, ttlSeconds: ttl, duration });
     }
@@ -176,7 +187,10 @@ function ComposerComponent({
         <div className="mx-auto max-w-4xl">
           <VoiceNoteRecorder
             onSend={handleSendVoice}
-            onCancel={() => setIsRecordingVoice(false)}
+            onCancel={() => {
+              setIsRecordingVoice(false);
+              onRecording?.(false);
+            }}
           />
         </div>
       ) : (
@@ -335,7 +349,10 @@ function ComposerComponent({
               /* Microphone Button (RENDERED ONLY IN STEALTH MEDIA MODE WHEN TEXT IS EMPTY) */
               <button
                 type="button"
-                onClick={() => setIsRecordingVoice(true)}
+                onClick={() => {
+                  setIsRecordingVoice(true);
+                  onRecording?.(true);
+                }}
                 title="Record encrypted voice note"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100 dark:bg-[#000000] border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-white/10 hover:text-black dark:hover:text-white transition-all cursor-pointer shadow-sm active:scale-95"
               >

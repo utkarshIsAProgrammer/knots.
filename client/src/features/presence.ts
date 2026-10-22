@@ -5,17 +5,20 @@ import type { Presence } from '../lib/api/types';
 interface PresenceState {
   peers: Record<string, Presence>;
   typingTo: string | null;
+  typingAction: 'typing' | 'recording';
   running: boolean;
   start: (me: string, peers: () => string[]) => void;
   stop: () => void;
   setTyping: (peer: string | null) => void;
-  receiveTyping: (peerId: string, isTyping: boolean) => void;
+  setRecording: (peer: string | null) => void;
+  receiveTyping: (peerId: string, isTyping: boolean, action?: 'typing' | 'recording') => void;
   beat: () => void;
 }
 
 let heartbeat: ReturnType<typeof setInterval> | null = null;
 let poller: ReturnType<typeof setInterval> | null = null;
 let typingTimer: ReturnType<typeof setTimeout> | null = null;
+let recordingInterval: ReturnType<typeof setInterval> | null = null;
 const peerTypingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let currentMe: string | null = null;
 let getPeersFn: (() => string[]) | null = null;
@@ -24,6 +27,7 @@ let visibilityHandler: (() => void) | null = null;
 export const usePresence = create<PresenceState>((set, get) => ({
   peers: {},
   typingTo: null,
+  typingAction: 'typing',
   running: false,
 
   start: (me, peers) => {
@@ -51,12 +55,18 @@ export const usePresence = create<PresenceState>((set, get) => ({
 
           for (const [id, pres] of Object.entries(res.presences)) {
             const cur = currentPeers[id];
-            if (!cur || cur.isOnline !== pres.isOnline || cur.isTyping !== pres.isTyping) {
+            if (
+              !cur ||
+              cur.isOnline !== pres.isOnline ||
+              cur.isTyping !== pres.isTyping ||
+              cur.isRecording !== pres.isRecording
+            ) {
               changed = true;
               next[id] = {
                 isOnline: pres.isOnline,
                 lastSeen: pres.lastSeen,
-                isTyping: pres.isTyping
+                isTyping: pres.isTyping,
+                isRecording: Boolean(pres.isRecording)
               };
             }
           }
@@ -104,7 +114,8 @@ export const usePresence = create<PresenceState>((set, get) => ({
     if (heartbeat) clearInterval(heartbeat);
     if (poller) clearInterval(poller);
     if (typingTimer) clearTimeout(typingTimer);
-    heartbeat = poller = typingTimer = null;
+    if (recordingInterval) clearInterval(recordingInterval);
+    heartbeat = poller = typingTimer = recordingInterval = null;
 
     if (typeof document !== 'undefined' && visibilityHandler) {
       document.removeEventListener('visibilitychange', visibilityHandler);
@@ -115,10 +126,10 @@ export const usePresence = create<PresenceState>((set, get) => ({
     peerTypingTimers.clear();
     currentMe = null;
     getPeersFn = null;
-    set({ running: false, typingTo: null });
+    set({ running: false, typingTo: null, typingAction: 'typing' });
   },
 
-  receiveTyping: (peerId, isTyping) => {
+  receiveTyping: (peerId, isTyping, action = 'typing') => {
     if (!peerId) return;
     const existing = get().peers;
     // Find canonical key
@@ -131,12 +142,15 @@ export const usePresence = create<PresenceState>((set, get) => ({
       peerTypingTimers.delete(canonicalKey.toLowerCase());
     }
 
+    const isRecording = Boolean(isTyping && action === 'recording');
+
     set((s) => ({
       peers: {
         ...s.peers,
         [canonicalKey]: {
           ...(s.peers[canonicalKey] ?? { isOnline: true, lastSeen: Date.now() }),
           isTyping,
+          isRecording,
           isOnline: true
         }
       }
@@ -149,21 +163,25 @@ export const usePresence = create<PresenceState>((set, get) => ({
             ...s.peers,
             [canonicalKey]: {
               ...(s.peers[canonicalKey] ?? { isOnline: true, lastSeen: Date.now() }),
-              isTyping: false
+              isTyping: false,
+              isRecording: false
             }
           }
         }));
         peerTypingTimers.delete(canonicalKey.toLowerCase());
-      }, 3500);
+      }, isRecording ? 5000 : 3500);
       peerTypingTimers.set(canonicalKey.toLowerCase(), resetTimer);
     }
   },
 
   setTyping: (peer) => {
     if (typingTimer) clearTimeout(typingTimer);
-    set({ typingTo: peer });
+    if (recordingInterval) clearInterval(recordingInterval);
+    recordingInterval = null;
+
+    set({ typingTo: peer, typingAction: 'typing' });
     if (currentMe) {
-      void api.presenceHeartbeat(currentMe, peer).catch(() => undefined);
+      void api.presenceHeartbeat(currentMe, peer, 'typing').catch(() => undefined);
     }
     if (peer) {
       typingTimer = setTimeout(() => {
@@ -172,6 +190,33 @@ export const usePresence = create<PresenceState>((set, get) => ({
           void api.presenceHeartbeat(currentMe, null).catch(() => undefined);
         }
       }, 2500);
+    }
+  },
+
+  setRecording: (peer) => {
+    if (typingTimer) clearTimeout(typingTimer);
+    if (recordingInterval) clearInterval(recordingInterval);
+    recordingInterval = null;
+
+    if (peer) {
+      set({ typingTo: peer, typingAction: 'recording' });
+      if (currentMe) {
+        void api.presenceHeartbeat(currentMe, peer, 'recording').catch(() => undefined);
+      }
+      // Periodically heartbeat every 2.5s while recording voice notes
+      recordingInterval = setInterval(() => {
+        if (currentMe && get().typingTo === peer && get().typingAction === 'recording') {
+          void api.presenceHeartbeat(currentMe, peer, 'recording').catch(() => undefined);
+        } else {
+          if (recordingInterval) clearInterval(recordingInterval);
+          recordingInterval = null;
+        }
+      }, 2500);
+    } else {
+      set({ typingTo: null, typingAction: 'typing' });
+      if (currentMe) {
+        void api.presenceHeartbeat(currentMe, null).catch(() => undefined);
+      }
     }
   },
 

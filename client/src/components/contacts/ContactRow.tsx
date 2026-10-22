@@ -1,4 +1,4 @@
-import { Ban, BellOff, Check, Clock } from 'lucide-react';
+import { Ban, BellOff, Check, Clock, Mic } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { Badge } from '../ui/Badge';
 import { cn } from '../../lib/cn';
@@ -14,6 +14,7 @@ interface ContactRowProps {
   unread?: number;
   online?: boolean;
   typing?: boolean;
+  recording?: boolean;
   onClick?: () => void;
 }
 
@@ -26,6 +27,7 @@ export function ContactRow({
   unread = 0,
   online,
   typing,
+  recording,
   onClick
 }: ContactRowProps) {
   const name = contact.alias || shortKnotId(contact.knot_id);
@@ -64,8 +66,13 @@ export function ContactRow({
           {contact.muted && <BellOff size={12} className="shrink-0 text-amber-500" />}
           {pending && <Clock size={12} className="shrink-0 text-amber-500" />}
         </div>
-        <p className={cn('truncate text-[12.5px]', typing ? 'text-zinc-900 dark:text-white font-medium' : 'text-zinc-500 dark:text-zinc-400')}>
-          {typing ? (
+        <p className={cn('truncate text-[12.5px]', recording || typing ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-zinc-500 dark:text-zinc-400')}>
+          {recording ? (
+            <span className="inline-flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400 animate-pulse">
+              <Mic size={12} className="shrink-0 text-emerald-500" />
+              <span>recording audio…</span>
+            </span>
+          ) : typing ? (
             'typing…'
           ) : isDeleted ? (
             <span className="inline-flex items-center gap-1 italic text-zinc-400 dark:text-zinc-500">

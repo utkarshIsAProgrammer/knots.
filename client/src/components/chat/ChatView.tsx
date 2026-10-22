@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Bell, BellOff, Eraser, MoreVertical, Search, UserCheck, UserMinus } from 'lucide-react';
+import { ArrowLeft, Bell, BellOff, Eraser, Mic, MoreVertical, Search, UserCheck, UserMinus } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -60,6 +60,7 @@ export function ChatView() {
   }, [peers, peer]);
 
   const setTyping = usePresence((s) => s.setTyping);
+  const setRecording = usePresence((s) => s.setRecording);
 
   const [replyTo, setReplyTo] = useState<ReplyRef | null>(null);
   const [editing, setEditing] = useState<StoredMessage | null>(null);
@@ -204,7 +205,6 @@ export function ChatView() {
   }
 
   const name = contact?.alias || shortKnotId(peer);
-  const subtitle = presence?.isOnline ? 'Active now' : 'Offline';
 
   return (
     <div
@@ -227,9 +227,20 @@ export function ChatView() {
           <Avatar knotId={peer} online={presence?.isOnline} size="sm" />
           <div className="min-w-0">
             <p className="truncate text-[15px] font-semibold tracking-[-0.01em] text-zinc-900 dark:text-white">{name}</p>
-            <p className={`truncate text-[12px] ${presence?.isOnline ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-zinc-500 dark:text-zinc-400'}`}>
-              {subtitle}
-            </p>
+            {presence?.isRecording ? (
+              <div className="flex items-center gap-1.5 text-[12px] text-emerald-600 dark:text-emerald-400 font-medium">
+                <Mic size={13} className="shrink-0 animate-pulse text-emerald-500" />
+                <span className="italic">recording audio…</span>
+              </div>
+            ) : presence?.isTyping ? (
+              <p className="truncate text-[12px] text-emerald-600 dark:text-emerald-400 font-medium">
+                typing…
+              </p>
+            ) : (
+              <p className={`truncate text-[12px] ${presence?.isOnline ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-zinc-500 dark:text-zinc-400'}`}>
+                {presence?.isOnline ? 'Active now' : 'Offline'}
+              </p>
+            )}
           </div>
         </div>
 
@@ -322,7 +333,8 @@ export function ChatView() {
             messages={visible}
             me={myKnotId}
             peer={peer}
-            isTyping={Boolean(presence?.isTyping)}
+            isTyping={Boolean(presence?.isTyping && !presence?.isRecording)}
+            isRecording={Boolean(presence?.isRecording)}
             onReply={handleReply}
             onForward={handleForward}
             onEdit={handleEdit}
@@ -339,6 +351,7 @@ export function ChatView() {
         onSendMedia={handleSendMedia}
         onTyping={() => setTyping(peer)}
         onStopTyping={() => setTyping(null)}
+        onRecording={(isRec) => setRecording(isRec ? peer : null)}
         replyTo={replyTo}
         onClearReply={() => setReplyTo(null)}
         editing={editing ? editing.plaintext : null}

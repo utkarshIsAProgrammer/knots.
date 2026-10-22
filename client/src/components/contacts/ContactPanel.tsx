@@ -73,6 +73,7 @@ export function ContactPanel() {
           unread,
           online: peerState?.isOnline ?? false,
           typing: peerState?.isTyping ?? false,
+          recording: peerState?.isRecording ?? false,
           time: previewInfo.time ?? (contact.created_at ? new Date(contact.created_at).getTime() : 0)
         };
       })
@@ -154,7 +155,7 @@ export function ContactPanel() {
           />
         ) : (
           <div className="space-y-0.5">
-            {rows.map(({ contact, preview, previewTime, isDeleted, unread, online, typing }) => (
+            {rows.map(({ contact, preview, previewTime, isDeleted, unread, online, typing, recording }) => (
               <ContactRow
                 key={contact.knot_id}
                 contact={contact}
@@ -165,6 +166,7 @@ export function ContactPanel() {
                 unread={unread}
                 online={online}
                 typing={typing}
+                recording={recording}
                 onClick={() => openConvo(contact)}
               />
             ))}

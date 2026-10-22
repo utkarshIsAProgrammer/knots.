@@ -724,8 +724,9 @@ app.post('/api/v1/message', async (req, res) => {
     const senderPres = memoryStore.presence.get((senderKnotId || '').trim().toLowerCase());
     if (senderPres) {
       senderPres.typingTo = null;
+      senderPres.typingAction = null;
     }
-    sendSseEvent(recipientKnotId, { type: 'typing', isTyping: false, fromKnotId: senderKnotId });
+    sendSseEvent(recipientKnotId, { type: 'typing', isTyping: false, isRecording: false, fromKnotId: senderKnotId });
 
     sendSseEvent(recipientKnotId, {
       type: 'new_message',
@@ -1094,24 +1095,32 @@ app.post('/api/v1/messages/:id/react', async (req, res) => {
 
 // ===== User Presence & Typing Heartbeat =====
 app.post('/api/v1/presence/heartbeat', (req, res) => {
-  const { knotId, typingTo } = req.body;
+  const { knotId, typingTo, action } = req.body;
   if (!knotId) return res.status(400).json({ error: 'knotId required' });
 
   const knotKey = knotId.trim().toLowerCase();
   const prev = memoryStore.presence.get(knotKey);
   const prevTypingTo = prev?.typingTo;
   const isNowTyping = Boolean(typingTo);
+  const typingAction = isNowTyping ? (action === 'recording' ? 'recording' : 'typing') : null;
 
   memoryStore.presence.set(knotKey, {
     lastSeen: Date.now(),
     typingTo: isNowTyping ? typingTo.trim().toLowerCase() : null,
-    typingAt: isNowTyping ? Date.now() : null
+    typingAt: isNowTyping ? Date.now() : null,
+    typingAction
   });
 
   if (typingTo) {
-    sendSseEvent(typingTo, { type: 'typing', isTyping: true, fromKnotId: knotId });
+    sendSseEvent(typingTo, {
+      type: 'typing',
+      isTyping: true,
+      action: typingAction,
+      isRecording: typingAction === 'recording',
+      fromKnotId: knotId
+    });
   } else if (prevTypingTo) {
-    sendSseEvent(prevTypingTo, { type: 'typing', isTyping: false, fromKnotId: knotId });
+    sendSseEvent(prevTypingTo, { type: 'typing', isTyping: false, isRecording: false, fromKnotId: knotId });
   }
 
   res.json({ success: true });
@@ -1124,7 +1133,7 @@ app.get('/api/v1/presence/:knotId', (req, res) => {
   const p = memoryStore.presence.get((knotId || '').trim().toLowerCase());
 
   if (!p) {
-    return res.json({ success: true, isOnline: false, lastSeen: null, isTyping: false });
+    return res.json({ success: true, isOnline: false, lastSeen: null, isTyping: false, isRecording: false });
   }
 
   const isOnline = Date.now() - p.lastSeen < 60000; // 60 second heartbeat threshold (conserves bandwidth)
@@ -1136,12 +1145,14 @@ app.get('/api/v1/presence/:knotId', (req, res) => {
     p.typingAt &&
     Date.now() - p.typingAt < 4000
   );
+  const isRecording = Boolean(isTyping && p.typingAction === 'recording');
 
   res.json({
     success: true,
     isOnline,
     lastSeen: p.lastSeen,
-    isTyping
+    isTyping,
+    isRecording
   });
 });
 
@@ -1161,7 +1172,7 @@ app.post('/api/v1/presence/batch', (req, res) => {
     if (!key) continue;
     const p = memoryStore.presence.get(key);
     if (!p) {
-      presences[key] = { isOnline: false, lastSeen: null, isTyping: false };
+      presences[key] = { isOnline: false, lastSeen: null, isTyping: false, isRecording: false };
     } else {
       const isOnline = now - p.lastSeen < 60000;
       const isTyping = Boolean(
@@ -1171,7 +1182,8 @@ app.post('/api/v1/presence/batch', (req, res) => {
         p.typingAt &&
         now - p.typingAt < 4000
       );
-      presences[key] = { isOnline, lastSeen: p.lastSeen, isTyping };
+      const isRecording = Boolean(isTyping && p.typingAction === 'recording');
+      presences[key] = { isOnline, lastSeen: p.lastSeen, isTyping, isRecording };
     }
   }
 

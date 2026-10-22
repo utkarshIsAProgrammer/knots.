@@ -1,5 +1,6 @@
 import { memo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Mic } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { DateDivider } from './DateDivider';
 import { Avatar } from '../ui/Avatar';
@@ -10,6 +11,7 @@ interface MessageListProps {
   me: string;
   peer?: string;
   isTyping?: boolean;
+  isRecording?: boolean;
   onReply: (message: StoredMessage) => void;
   onForward?: (message: StoredMessage) => void;
   onEdit: (message: StoredMessage) => void;
@@ -23,6 +25,7 @@ export const MessageList = memo(function MessageList({
   me,
   peer,
   isTyping,
+  isRecording,
   onReply,
   onForward,
   onEdit,
@@ -65,9 +68,32 @@ export const MessageList = memo(function MessageList({
         })}
       </AnimatePresence>
 
-      {/* Instagram-style bottom typing indicator bubble */}
+      {/* Instagram/WhatsApp-style bottom typing & voice recording indicator bubble */}
       <AnimatePresence>
-        {isTyping && (
+        {isRecording ? (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.15 } }}
+            transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+            className="flex items-end gap-2 pt-1 pb-1"
+          >
+            {peer && <Avatar knotId={peer} size="xs" />}
+            <div className="flex items-center gap-2 rounded-2xl rounded-bl-xs bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/30 px-3.5 py-2 text-emerald-600 dark:text-emerald-400 shadow-sm backdrop-blur-sm">
+              <div className="relative flex items-center justify-center">
+                <span className="absolute h-3 w-3 rounded-full bg-emerald-500/40 animate-ping" />
+                <Mic size={14} className="shrink-0 relative z-10 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <span className="text-[12px] font-medium tracking-tight">recording audio…</span>
+              <div className="flex items-center gap-0.5 ml-1">
+                <span className="h-2 w-0.5 rounded-full bg-emerald-500/80 animate-pulse [animation-duration:600ms]" />
+                <span className="h-3.5 w-0.5 rounded-full bg-emerald-500/80 animate-pulse [animation-duration:400ms]" />
+                <span className="h-2 w-0.5 rounded-full bg-emerald-500/80 animate-pulse [animation-duration:750ms]" />
+                <span className="h-3 w-0.5 rounded-full bg-emerald-500/80 animate-pulse [animation-duration:500ms]" />
+              </div>
+            </div>
+          </motion.div>
+        ) : isTyping ? (
           <motion.div
             initial={{ opacity: 0, y: 8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -82,7 +108,7 @@ export const MessageList = memo(function MessageList({
               <span className="h-1.5 w-1.5 rounded-full bg-zinc-500 dark:bg-zinc-400 animate-bounce" />
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       <div ref={endRef} className="h-2" />

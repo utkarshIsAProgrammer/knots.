@@ -275,15 +275,15 @@ export const api = {
     });
   },
 
-  presenceHeartbeat(knotId: string, typingTo?: string | null) {
+  presenceHeartbeat(knotId: string, typingTo?: string | null, action?: 'typing' | 'recording' | null) {
     return request<{ success: boolean }>('/presence/heartbeat', {
       method: 'POST',
-      body: JSON.stringify({ knotId, typingTo: typingTo || null })
+      body: JSON.stringify({ knotId, typingTo: typingTo || null, action: action || null })
     });
   },
 
   async getPresence(knotId: string, peerId?: string) {
-    return request<{ success: boolean; isOnline: boolean; lastSeen: number | null; isTyping: boolean }>(
+    return request<{ success: boolean; isOnline: boolean; lastSeen: number | null; isTyping: boolean; isRecording?: boolean }>(
       `/presence/${encodeURIComponent(knotId)}?peerId=${encodeURIComponent(peerId || '')}`
     );
   },
@@ -291,7 +291,7 @@ export const api = {
   async getBatchPresence(knotIds: string[], peerId?: string) {
     return request<{
       success: boolean;
-      presences: Record<string, { isOnline: boolean; lastSeen: number | null; isTyping: boolean }>;
+      presences: Record<string, { isOnline: boolean; lastSeen: number | null; isTyping: boolean; isRecording?: boolean }>;
     }>('/presence/batch', {
       method: 'POST',
       body: JSON.stringify({ knotIds, peerId: peerId || null })

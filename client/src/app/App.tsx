@@ -83,7 +83,11 @@ export default function App() {
             if (data.type === 'ping' || data.type === 'connected') return;
 
             if (data.type === 'typing') {
-              usePresence.getState().receiveTyping(data.fromKnotId, data.isTyping);
+              usePresence.getState().receiveTyping(
+                data.fromKnotId,
+                data.isTyping,
+                data.action || (data.isRecording ? 'recording' : 'typing')
+              );
               return;
             }
 

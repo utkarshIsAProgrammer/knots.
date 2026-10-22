@@ -86,6 +86,7 @@ export interface Presence {
   isOnline: boolean;
   lastSeen: number | null;
   isTyping: boolean;
+  isRecording?: boolean;
 }
 
 export interface NetworkStats {
