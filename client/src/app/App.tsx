@@ -15,6 +15,8 @@ import { notifications } from '../lib/notifications';
 import { sweepExpired } from '../lib/storage/db';
 import { usePolling } from '../lib/hooks';
 import { getRawBase, rotateRawBase } from '../lib/api/client';
+import { useUI } from '../features/ui';
+import { toast } from '../features/toast';
 
 function Boot() {
   return (
@@ -37,6 +39,18 @@ export default function App() {
     void useTheme.getState().init();
     void useIdentity.getState().bootstrap();
     notifications.init();
+
+    // Global Panic Nuke Shortcut (Shift + Esc)
+    const handleGlobalPanic = (e: KeyboardEvent) => {
+      if (e.shiftKey && (e.key === 'Escape' || e.key === 'Esc')) {
+        e.preventDefault();
+        e.stopPropagation();
+        useUI.getState().openOverlay('burn');
+        toast.warn('Emergency Panic Hotkey', 'Emergency Vault Shredder opened.');
+      }
+    };
+    window.addEventListener('keydown', handleGlobalPanic, true);
+    return () => window.removeEventListener('keydown', handleGlobalPanic, true);
   }, []);
 
   const knotId = identity?.knotId ?? null;

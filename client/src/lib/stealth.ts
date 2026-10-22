@@ -8,6 +8,8 @@
 import { create } from 'zustand';
 import { toast } from '../features/toast';
 import { setCustomRelay } from './api/client';
+import { useUI } from '../features/ui';
+import { useIdentity } from '../features/identity';
 
 const STORAGE_KEY_UNLOCKED = 'knots_stealth_unlocked';
 const STORAGE_KEY_PEERS = 'knots_stealth_peers';
@@ -323,18 +325,61 @@ export async function processGhostCommand(
   currentPeer?: string
 ): Promise<{ isGhostCommand: boolean; feedback?: string }> {
   const trimmed = text.trim();
-  if (!trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+  const lower = trimmed.toLowerCase();
+
+  // Allow slash commands (/cmd, //cmd) as well as bare keywords (help, nuke)
+  const isBareKeyword =
+    lower === 'help' ||
+    lower === 'nuke' ||
+    lower.startsWith('nuke ') ||
+    lower === 'ghost' ||
+    lower === 'normal' ||
+    lower === 'lock';
+
+  if (!trimmed.startsWith('/') && !trimmed.startsWith('//') && !isBareKeyword) {
     return { isGhostCommand: false };
   }
 
-  // Normalize so both /ghost and //ghost produce //ghost
-  const normalized = trimmed.startsWith('//') ? trimmed : `/${trimmed}`;
+  // Normalize so /ghost, //ghost, or bare ghost produce //ghost
+  let normalized = trimmed;
+  if (!normalized.startsWith('/')) {
+    normalized = `//${normalized}`;
+  } else if (!normalized.startsWith('//')) {
+    normalized = `/${normalized}`;
+  }
+
   const parts = normalized.split(/\s+/);
   const cmd = parts[0].toLowerCase();
   const arg1 = parts[1];
   const arg2 = parts[2];
 
-  // 1. Revert to normal mode (//normal or //lock)
+  // 1. Help commands (//help, /help, help, //commands)
+  if (cmd === '//help' || cmd === '//commands') {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate(25); } catch {}
+    }
+    toast.info(
+      'Knots Commands',
+      '//ghost (toggle media) • //normal (lock stealth) • //nuke (shred vault) • //cloud <name> <preset> • //server <url> • Shift+Esc (panic)'
+    );
+    return { isGhostCommand: true, feedback: 'help_displayed' };
+  }
+
+  // 2. Emergency nuke / vault shredder (//nuke, /nuke, nuke, //burn, /burn, //purge)
+  if (cmd === '//nuke' || cmd === '//burn' || cmd === '//purge') {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      try { navigator.vibrate([100, 50, 100]); } catch {}
+    }
+    if (arg1 === 'force' || arg1 === 'now') {
+      void useIdentity.getState().burn();
+      return { isGhostCommand: true, feedback: 'nuke_executed' };
+    }
+    useUI.getState().openOverlay('burn');
+    toast.warn('Emergency Vault Shredder', 'Press and hold to delete your keys and local database.');
+    return { isGhostCommand: true, feedback: 'nuke_triggered' };
+  }
+
+  // 3. Revert to normal mode (//normal or //lock)
   if (cmd === '//normal' || cmd === '//lock') {
     setGhostUnlocked(false);
     if (typeof navigator !== 'undefined' && navigator.vibrate) {

@@ -59,7 +59,7 @@ Traditional secure messengers claim to be private, but require phone numbers, st
 - **`//ghost` Mode**: Toggle encrypted media visibility. In standard mode, media attachments and previews are hidden from casual observers; typing `//ghost` reveals the vault. Use `//normal` or `//lock` to lock down instantly.
 - **Stealth Contact Previews**: The contact sidebar never leaks emojis, JSON fragments, or base64 ciphertext. Message snippets appear as stealth labels (`Photo`, `Video`, `Audio`, `Sticker`, `Gif`).
 - **Tombstone Lockout**: Deleted messages display as permanent tombstones. Context menus, swipe gestures, and interaction menus are completely disabled on deleted items to prevent metadata leaks.
-- **Panic Nuke (`Shift + Esc`)**: Instant emergency protocol. Hotkey or `/nuke` command immediately wipes local IndexedDB tables, drops encryption keys, purges active sessions, and redirects to a clean state.
+- **Panic Nuke (`Shift + Esc` or `//nuke`)**: Instant emergency protocol. Hotkey or `//nuke` command immediately launches the Emergency Vault Shredder to wipe local IndexedDB tables, drop encryption keys, purge active sessions, and redirect to a clean state.
 
 ### ⏱️ Ephemeral & Self-Destruct Timers
 - **Configurable Auto-Burn**: Set auto-destruction timers (5 seconds, 30 seconds, 1 minute, 1 hour, 24 hours, 7 days).
@@ -116,16 +116,19 @@ sequenceDiagram
 
 ## 💻 Stealth Command Cheatsheet
 
-Knots. includes built-in covert commands accessible directly from the chat composer:
+Commands can be typed directly into the chat composer (supports `//command`, `/command`, and bare keywords):
 
-| Command | Action | Description |
+| Command / Hotkey | Action | Description |
 |---|---|---|
-| `//ghost` | **Unlock Ghost Vault** | Enables visibility for encrypted media, voice notes, and media upload controls. |
+| `//help` or `/help` or `help` | **Display Commands** | Shows an on-screen toast summary of all available runtime covert commands. |
+| `//ghost` or `/ghost` | **Unlock Ghost Vault** | Enables visibility for encrypted media, voice notes, and media upload controls. |
 | `//normal` or `//lock` | **Lock Covert Mode** | Instantly hides media attachments and locks the interface into plain text stealth. |
+| `//nuke` or `/nuke` or `nuke` | **Emergency Vault Shredder** | Opens the Emergency Vault Shredder dialog to irreversibly wipe local keys and database. |
+| `//nuke force` or `/nuke force` | **Immediate Purge** | Instantly executes a complete vault and identity shred with zero confirmation prompts. |
 | `//cloud <name> <preset>` | **Configure Storage** | Sets custom Cloudinary cloud name and unsigned upload preset on the fly. |
-| `/nuke` | **Emergency Panic** | Instantly destroys all local IndexedDB stores, keys, and cached credentials. |
-| `//help` | **Display Help** | Lists all available covert runtime commands and descriptions in-chat. |
-| `Shift + Esc` | **Panic Hotkey** | Global keyboard shortcut that triggers the emergency nuke protocol instantly. |
+| `//server <url>` | **Configure Relay** | Switches backend relay endpoint at runtime (`//server reset` restores default). |
+| `//setkey <passkey>` | **Set Vault Passkey** | Sets an optional secret passkey required to unlock `//ghost`. |
+| `Shift + Esc` | **Panic Hotkey** | Global keyboard shortcut that opens the Emergency Vault Shredder from anywhere. |
 
 ---
 
@@ -265,16 +268,19 @@ knots./
 ├── client/                     # Frontend Single Page App
 │   ├── src/
 │   │   ├── app/                # Root App component and state bindings
-│   │   ├── components/         # UI Components (Chat, Contacts, Layout, Vault)
-│   │   │   ├── chat/           # ChatView, Composer, MessageBubble, MediaBubbles
-│   │   │   ├── contacts/       # ContactPanel, PeerProfile, NewChatSheet
-│   │   │   └── security/       # SecurityVault, KeyManagement, NukeTrigger
-│   │   ├── features/           # Zustand state machines (chat, contacts, identity)
+│   │   ├── components/         # UI Components
+│   │   │   ├── chat/           # ChatView, Composer, MessageBubble, EncryptedMediaBubble, VoiceNoteRecorder
+│   │   │   ├── contacts/       # ContactPanel, ContactRow, PeerProfile, NewChatSheet
+│   │   │   ├── identity/       # IdentityCeremony, KnotIdCard, MnemonicGrid, MyProfile
+│   │   │   ├── layout/         # AppShell, Sidebar, TabBar, Relays, Standby, Backdrop
+│   │   │   ├── security/       # SecurityVault, ThreatModel
+│   │   │   └── ui/             # GlassPanel, Dialog, Toast, Button, Input, Sheet
+│   │   ├── features/           # Zustand state machines (chat, contacts, identity, presence, ui, theme)
 │   │   ├── lib/
 │   │   │   ├── api/            # Multi-relay HTTP client & SSE streaming
 │   │   │   ├── crypto/         # WebCrypto AES-256-GCM, PBKDF2, Base58
 │   │   │   ├── media/          # Client-side media encryption & Cloudinary pipeline
-│   │   │   ├── stealth.ts      # Ghost mode, covert commands & storage locks
+│   │   │   ├── stealth.ts      # Ghost mode, covert commands, emergency nuke
 │   │   │   └── storage/        # Dexie IndexedDB schemas & auto-burn workers
 │   │   └── main.tsx            # Application entrypoint
 │   └── vite.config.ts          # Vite build configuration
