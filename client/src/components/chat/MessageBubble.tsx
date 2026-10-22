@@ -355,7 +355,12 @@ function MessageBubbleComponent({
                       </div>
                     </div>
                   )}
-                  <EncryptedMediaBubble payload={mediaPayload} mine={mine} failed={Boolean(message.failed)} />
+                  <EncryptedMediaBubble
+                    payload={mediaPayload}
+                    mine={mine}
+                    failed={Boolean(message.failed)}
+                    onRetry={() => onRetry?.(message)}
+                  />
                 </>
               ) : (
                 <>

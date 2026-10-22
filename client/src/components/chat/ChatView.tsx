@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Bell, BellOff, Eraser, MoreVertical, Search, UserCheck, UserMinus, AlertCircle, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Bell, BellOff, Eraser, MoreVertical, Search, UserCheck, UserMinus } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -332,29 +332,6 @@ export function ChatView() {
           />
         )}
       </div>
-
-      {(() => {
-        const failedMsgs = messages.filter((m) => m.failed);
-        if (failedMsgs.length === 0) return null;
-        return (
-          <div className="mx-4 mb-2 flex items-center justify-between rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-[12px] text-red-500 dark:bg-red-950/30 dark:border-red-500/30">
-            <div className="flex items-center gap-1.5 font-medium">
-              <AlertCircle size={14} />
-              <span>{failedMsgs.length === 1 ? 'Failed to send message' : `${failedMsgs.length} messages failed to send`}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (!myKnotId) return;
-                failedMsgs.forEach((msg) => void retry(peer, msg.id, myKnotId));
-              }}
-              className="flex items-center gap-1 rounded bg-red-500 px-2 py-0.5 text-[11px] font-medium text-white hover:bg-red-600 transition-colors"
-            >
-              <RotateCcw size={11} /> {failedMsgs.length === 1 ? 'Retry' : 'Retry all'}
-            </button>
-          </div>
-        );
-      })()}
 
       <Composer
         peer={peer}

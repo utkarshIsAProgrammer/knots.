@@ -7,9 +7,10 @@ interface EncryptedMediaBubbleProps {
   payload: EncryptedMediaPayload;
   mine: boolean;
   failed?: boolean;
+  onRetry?: () => void;
 }
 
-export function EncryptedMediaBubble({ payload, mine, failed }: EncryptedMediaBubbleProps) {
+export function EncryptedMediaBubble({ payload, mine, failed, onRetry }: EncryptedMediaBubbleProps) {
   const isUploading = Boolean(mine && payload.isUploading && !failed);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(!payload.url?.startsWith('blob:'));
@@ -134,8 +135,9 @@ export function EncryptedMediaBubble({ payload, mine, failed }: EncryptedMediaBu
           {/* Play/Pause Button */}
           <button
             type="button"
-            onClick={isUploading ? undefined : togglePlay}
+            onClick={isUploading ? undefined : mine && failed ? onRetry : togglePlay}
             disabled={isUploading}
+            title={mine && failed ? 'Tap to retry' : undefined}
             className={cn(
               'grid h-9 w-9 shrink-0 place-items-center rounded-full transition-transform active:scale-95 cursor-pointer',
               mine
@@ -170,7 +172,12 @@ export function EncryptedMediaBubble({ payload, mine, failed }: EncryptedMediaBu
             </div>
 
             <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
-              <span>{isUploading ? 'Sending…' : mine && failed ? 'Failed' : formatSeconds(currentTime)}</span>
+              <span
+                onClick={mine && failed ? onRetry : undefined}
+                className={mine && failed ? 'cursor-pointer font-medium text-red-400 hover:underline' : ''}
+              >
+                {isUploading ? 'Sending…' : mine && failed ? 'Failed (tap to retry)' : formatSeconds(currentTime)}
+              </span>
               <span>{formatSeconds(duration || currentTime)}</span>
             </div>
           </div>
@@ -198,11 +205,11 @@ export function EncryptedMediaBubble({ payload, mine, failed }: EncryptedMediaBu
           <img
             src={mediaUrl}
             alt="Encrypted media"
-            onClick={() => !isUploading && setFullView(true)}
+            onClick={() => !isUploading && !failed && setFullView(true)}
             className={cn(
               'max-h-64 sm:max-h-80 w-auto rounded-lg object-cover cursor-pointer transition-transform hover:scale-[1.01] active:scale-98',
               isUploading && 'brightness-75',
-              mine && failed && 'brightness-60 grayscale-[30%]'
+              mine && failed && 'brightness-60 grayscale-[25%]'
             )}
           />
 
@@ -212,11 +219,18 @@ export function EncryptedMediaBubble({ payload, mine, failed }: EncryptedMediaBu
               <span className="text-[11px] font-medium text-white/95 drop-shadow">Sending…</span>
             </div>
           ) : mine && failed ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 backdrop-blur-[1px] pointer-events-none select-none rounded-lg text-white">
-              <div className="grid h-9 w-9 place-items-center rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
-                <RotateCcw size={17} />
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onRetry?.();
+              }}
+              title="Tap to retry sending"
+              className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60 backdrop-blur-[2px] select-none rounded-lg text-white cursor-pointer group/retry transition-colors hover:bg-black/70"
+            >
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-red-500/25 hover:bg-red-500/40 text-red-200 border border-red-500/40 shadow-lg transition-transform group-hover/retry:scale-110 active:scale-95">
+                <RotateCcw size={18} />
               </div>
-              <span className="text-[11px] font-medium text-red-200">Upload failed</span>
+              <span className="text-[11px] font-medium text-red-200 drop-shadow">Tap to retry</span>
             </div>
           ) : (
             <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
@@ -271,11 +285,18 @@ export function EncryptedMediaBubble({ payload, mine, failed }: EncryptedMediaBu
             <span className="text-[11px] font-medium text-white/95 drop-shadow">Sending video…</span>
           </div>
         ) : mine && failed ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 backdrop-blur-[1px] pointer-events-none select-none rounded-lg text-white">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
-              <RotateCcw size={17} />
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onRetry?.();
+            }}
+            title="Tap to retry sending"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60 backdrop-blur-[2px] select-none rounded-lg text-white cursor-pointer group/retry transition-colors hover:bg-black/70"
+          >
+            <div className="grid h-10 w-10 place-items-center rounded-full bg-red-500/25 hover:bg-red-500/40 text-red-200 border border-red-500/40 shadow-lg transition-transform group-hover/retry:scale-110 active:scale-95">
+              <RotateCcw size={18} />
             </div>
-            <span className="text-[11px] font-medium text-red-200">Upload failed</span>
+            <span className="text-[11px] font-medium text-red-200 drop-shadow">Tap to retry</span>
           </div>
         ) : null}
       </div>
