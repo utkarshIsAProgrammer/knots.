@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Knots</string>
-    <string name="title_activity_main">Knots</string>
-    <string name="package_name">com.knots.app</string>
-    <string name="custom_url_scheme">com.knots.app</string>
-</resources>

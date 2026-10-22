@@ -7,15 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
-    "cap:sync": "npx cap sync",
-    "cap:build": "npm run build && npx cap sync",
-    "cap:open": "npx cap open android"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@capacitor/android": "^8.5.3",
-    "@capacitor/cli": "^8.5.3",
-    "@capacitor/core": "^8.5.3",
     "dexie": "^4.4.6",
     "framer-motion": "^11.15.0",
     "lucide-react": "^0.468.0",
