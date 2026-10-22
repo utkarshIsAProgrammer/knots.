@@ -57,7 +57,7 @@ export function ContactPanel() {
     return Array.from(peersMap.values())
       .map(({ contact, thread }) => {
         const cLower = contact.knot_id.toLowerCase();
-        const previewInfo = getMessagePreview(thread, isGhost, contact.created_at);
+        const previewInfo = getMessagePreview(thread, isGhost, contact.created_at, me);
         const unread = thread.filter((m) => {
           if (m.recipientId !== me || m.status === 'read' || m.status === 'deleted') return false;
           if (!isGhost && isMediaMessage(m)) return false;
@@ -69,6 +69,7 @@ export function ContactPanel() {
           contact,
           preview: previewInfo.text || undefined,
           previewTime: previewInfo.time,
+          isDeleted: previewInfo.isDeleted,
           unread,
           online: peerState?.isOnline ?? false,
           typing: peerState?.isTyping ?? false,
@@ -153,13 +154,14 @@ export function ContactPanel() {
           />
         ) : (
           <div className="space-y-0.5">
-            {rows.map(({ contact, preview, previewTime, unread, online, typing }) => (
+            {rows.map(({ contact, preview, previewTime, isDeleted, unread, online, typing }) => (
               <ContactRow
                 key={contact.knot_id}
                 contact={contact}
                 active={activeThread === contact.knot_id}
                 preview={preview}
                 previewTime={previewTime}
+                isDeleted={isDeleted}
                 unread={unread}
                 online={online}
                 typing={typing}

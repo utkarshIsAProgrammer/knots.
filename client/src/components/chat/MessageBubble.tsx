@@ -1,11 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  Ban,
   Check,
   CheckCheck,
+  Clock,
   Copy,
   Forward,
-  Loader2,
   Pencil,
   Plus,
   Reply,
@@ -312,7 +313,7 @@ function MessageBubbleComponent({
                   <BurnChip expiresAt={message.expiresAt} />
                 )}
                 <TimeStamp ts={message.createdAt} />
-                {mine && <StatusIndicator message={message} onRetry={onRetry} />}
+                {mine && !deleted && <StatusIndicator message={message} onRetry={onRetry} />}
               </div>
             </div>
           ) : (
@@ -325,7 +326,12 @@ function MessageBubbleComponent({
               )}
             >
               {deleted ? (
-                <span className="italic text-zinc-500 dark:text-zinc-400">This message was deleted.</span>
+                <div className="flex items-center gap-1.5 py-0.5 text-zinc-500 dark:text-zinc-400 select-none">
+                  <Ban size={14} className="shrink-0 text-zinc-400 dark:text-zinc-500" />
+                  <span className="italic text-[13.5px]">
+                    {mine ? 'You deleted this message' : 'This message was deleted'}
+                  </span>
+                </div>
               ) : mediaPayload ? (
                 <>
                   {message.replyTo && (
@@ -349,7 +355,7 @@ function MessageBubbleComponent({
                       </div>
                     </div>
                   )}
-                  <EncryptedMediaBubble payload={mediaPayload} mine={mine} />
+                  <EncryptedMediaBubble payload={mediaPayload} mine={mine} failed={Boolean(message.failed)} />
                 </>
               ) : (
                 <>
@@ -384,7 +390,7 @@ function MessageBubbleComponent({
                   <BurnChip expiresAt={message.expiresAt} />
                 )}
                 <TimeStamp ts={message.createdAt} />
-                {mine && <StatusIndicator message={message} onRetry={onRetry} />}
+                {mine && !deleted && <StatusIndicator message={message} onRetry={onRetry} />}
               </div>
             </div>
           )}
@@ -674,7 +680,7 @@ function StatusIndicator({
           <span>Retry</span>
         </button>
       ) : message.pending ? (
-        <Loader2 size={13} className="shrink-0 animate-spin text-zinc-400" />
+        <Clock size={12} className="shrink-0 text-zinc-400 dark:text-zinc-500" />
       ) : message.status === 'read' ? (
         <CheckCheck size={16} strokeWidth={2.4} className="shrink-0 text-[#0284c7] dark:text-[#38bdf8]" />
       ) : message.status === 'delivered' ? (

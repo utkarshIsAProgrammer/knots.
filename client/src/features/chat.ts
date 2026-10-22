@@ -28,6 +28,11 @@ import {
   type EncryptedMediaPayload
 } from '../lib/media/e2eeMedia';
 
+const pendingMediaBlobs = new Map<
+  string,
+  { blob: Blob; mediaType: 'audio' | 'image' | 'video'; duration?: number }
+>();
+
 export interface SendInput {
   text: string;
   type?: MessageType;
@@ -218,9 +223,48 @@ export const useChat = create<ChatState>((set, get) => ({
         if (!rawId) continue;
 
         if (raw.status === 'deleted') {
-          if (existingById.has(rawId)) {
-            await deleteMessageLocal(rawId);
-            existingById.delete(rawId);
+          const existing = existingById.get(rawId);
+          if (existing) {
+            if (existing.status !== 'deleted' || existing.plaintext !== '') {
+              await patchMessage(existing.id, {
+                status: 'deleted',
+                plaintext: '',
+                ciphertext: '',
+                reactions: [],
+                pending: false,
+                failed: false,
+                expiresAt: null
+              });
+              existing.status = 'deleted';
+              existing.plaintext = '';
+              existing.ciphertext = '';
+              existing.reactions = [];
+              existing.pending = false;
+              existing.failed = false;
+              existing.expiresAt = null;
+              mutated = true;
+            }
+          } else {
+            const sender = raw.sender_knot_id || '';
+            const recipient = raw.recipient_knot_id || me.knotId;
+            const threadKey = (sender.toLowerCase() === me.knotId.toLowerCase()) ? recipient : sender;
+            const tombstone: StoredMessage = {
+              id: rawId,
+              thread: threadKey || 'unknown',
+              senderId: sender,
+              recipientId: recipient,
+              plaintext: '',
+              ciphertext: '',
+              type: (raw.type as MessageType) || 'text',
+              status: 'deleted',
+              createdAt: raw.created_at ? new Date(raw.created_at).getTime() : Date.now(),
+              expiresAt: null,
+              pending: false,
+              failed: false,
+              reactions: []
+            };
+            await putMessage(tombstone);
+            existingById.set(rawId, tombstone);
             mutated = true;
           }
           continue;
@@ -301,9 +345,48 @@ export const useChat = create<ChatState>((set, get) => ({
         const rawId = String(raw._id || (raw as any).id || (raw as any).messageId || '').trim();
         if (!rawId) continue;
         if (raw.status === 'deleted') {
-          if (existingById.has(rawId)) {
-            await deleteMessageLocal(rawId);
-            existingById.delete(rawId);
+          const existing = existingById.get(rawId);
+          if (existing) {
+            if (existing.status !== 'deleted' || existing.plaintext !== '') {
+              await patchMessage(existing.id, {
+                status: 'deleted',
+                plaintext: '',
+                ciphertext: '',
+                reactions: [],
+                pending: false,
+                failed: false,
+                expiresAt: null
+              });
+              existing.status = 'deleted';
+              existing.plaintext = '';
+              existing.ciphertext = '';
+              existing.reactions = [];
+              existing.pending = false;
+              existing.failed = false;
+              existing.expiresAt = null;
+              mutated = true;
+            }
+          } else {
+            const sender = raw.sender_knot_id || '';
+            const recipient = raw.recipient_knot_id || me.knotId;
+            const threadKey = (sender.toLowerCase() === me.knotId.toLowerCase()) ? recipient : sender;
+            const tombstone: StoredMessage = {
+              id: rawId,
+              thread: threadKey || 'unknown',
+              senderId: sender,
+              recipientId: recipient,
+              plaintext: '',
+              ciphertext: '',
+              type: (raw.type as MessageType) || 'text',
+              status: 'deleted',
+              createdAt: raw.created_at ? new Date(raw.created_at).getTime() : Date.now(),
+              expiresAt: null,
+              pending: false,
+              failed: false,
+              reactions: []
+            };
+            await putMessage(tombstone);
+            existingById.set(rawId, tombstone);
             mutated = true;
           }
           continue;
@@ -569,6 +652,7 @@ export const useChat = create<ChatState>((set, get) => ({
 
     // Save optimistic preview locally & trigger instant UI render (WhatsApp/Instagram style)
     await putMessage(local);
+    pendingMediaBlobs.set(msgId, { blob, mediaType, duration: options.duration });
     const pLower = targetPeer.trim().toLowerCase();
     const targetKey = Object.keys(get().threads).find((k) => k.toLowerCase() === pLower) || targetPeer;
 
@@ -584,6 +668,7 @@ export const useChat = create<ChatState>((set, get) => ({
     (async () => {
       try {
         const payload = await uploadEncryptedMedia(blob, mediaType, options.duration);
+        pendingMediaBlobs.delete(msgId);
         const serialized = JSON.stringify(payload);
         const enc = await encryptPayload(serialized, DEFAULT_SHARED_SECRET);
 
@@ -635,12 +720,20 @@ export const useChat = create<ChatState>((set, get) => ({
           };
         });
       } catch (err: any) {
+        const failedPayload: EncryptedMediaPayload = {
+          ...optimisticPayload,
+          isUploading: false
+        };
+        const failedPlaintext = JSON.stringify(failedPayload);
+        await patchMessage(msgId, { pending: false, failed: true, plaintext: failedPlaintext });
         set((s) => {
           const cur = s.threads[targetKey] || [];
           return {
             threads: {
               ...s.threads,
-              [targetKey]: cur.map((m) => (m.id === msgId ? { ...m, pending: false, failed: true } : m))
+              [targetKey]: cur.map((m) =>
+                m.id === msgId ? { ...m, pending: false, failed: true, plaintext: failedPlaintext } : m
+              )
             }
           };
         });
@@ -682,12 +775,44 @@ export const useChat = create<ChatState>((set, get) => ({
       let ciphertext = msg.ciphertext;
       let nonce = msg.nonce;
       let tag = msg.tag;
+      let updatedPlaintext = msg.plaintext;
+
       if (!ciphertext) {
-        const payloadText = msg.sticker ?? msg.plaintext;
-        const enc = await encryptPayload(payloadText, DEFAULT_SHARED_SECRET);
-        ciphertext = enc.ciphertext;
-        nonce = enc.iv;
-        tag = enc.tag;
+        if (msg.type === 'media') {
+          const pending = pendingMediaBlobs.get(id);
+          let mediaBlob = pending?.blob;
+          let mediaType = pending?.mediaType;
+          let duration = pending?.duration;
+
+          if (!mediaBlob && msg.plaintext) {
+            const parsed = parseMediaPayload(msg.plaintext);
+            if (parsed?.url?.startsWith('blob:')) {
+              try {
+                mediaBlob = await fetch(parsed.url).then((r) => r.blob());
+                mediaType = parsed.mediaType;
+                duration = parsed.duration;
+              } catch {}
+            }
+          }
+
+          if (!mediaBlob || !mediaType) {
+            throw new Error('Media file is no longer available in memory. Please select the file again.');
+          }
+
+          const uploadedPayload = await uploadEncryptedMedia(mediaBlob, mediaType, duration);
+          pendingMediaBlobs.delete(id);
+          updatedPlaintext = JSON.stringify(uploadedPayload);
+          const enc = await encryptPayload(updatedPlaintext, DEFAULT_SHARED_SECRET);
+          ciphertext = enc.ciphertext;
+          nonce = enc.iv;
+          tag = enc.tag;
+        } else {
+          const payloadText = msg.sticker ?? msg.plaintext;
+          const enc = await encryptPayload(payloadText, DEFAULT_SHARED_SECRET);
+          ciphertext = enc.ciphertext;
+          nonce = enc.iv;
+          tag = enc.tag;
+        }
       }
 
       const res = await api.sendMessage({
@@ -717,6 +842,10 @@ export const useChat = create<ChatState>((set, get) => ({
       const delivered: StoredMessage = {
         ...msg,
         id: serverId,
+        plaintext: updatedPlaintext,
+        ciphertext,
+        nonce,
+        tag,
         pending: false,
         failed: false,
         status: 'delivered' as const,
@@ -732,9 +861,9 @@ export const useChat = create<ChatState>((set, get) => ({
       }));
       playPing();
       toast.success('Message sent');
-    } catch (err) {
+    } catch (err: any) {
       const failed = { ...msg, pending: false, failed: true, expiresAt: null };
-      await putMessage(failed);
+      await patchMessage(id, { pending: false, failed: true, expiresAt: null });
       set((s) => ({
         threads: {
           ...s.threads,
@@ -782,13 +911,15 @@ export const useChat = create<ChatState>((set, get) => ({
       }
     }
 
-    await patchMessage(id, { plaintext: '', ciphertext: '', status: 'deleted' });
+    await patchMessage(id, { plaintext: '', ciphertext: '', status: 'deleted', reactions: [], expiresAt: null });
     set((s) => {
       return {
         threads: {
           ...s.threads,
           [targetKey]: (s.threads[targetKey] ?? []).map((m) =>
-            m.id === id ? { ...m, plaintext: '', ciphertext: '', status: 'deleted' as const } : m
+            m.id === id
+              ? { ...m, plaintext: '', ciphertext: '', status: 'deleted' as const, reactions: [], expiresAt: null }
+              : m
           )
         }
       };

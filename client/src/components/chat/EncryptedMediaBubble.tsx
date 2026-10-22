@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { Lock, Loader2, Pause, Play, X } from 'lucide-react';
+import { Lock, Loader2, Pause, Play, RotateCcw, X } from 'lucide-react';
 import { decryptMediaPayload, type EncryptedMediaPayload } from '../../lib/media/e2eeMedia';
 import { cn } from '../../lib/cn';
 
 interface EncryptedMediaBubbleProps {
   payload: EncryptedMediaPayload;
   mine: boolean;
+  failed?: boolean;
 }
 
-export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProps) {
+export function EncryptedMediaBubble({ payload, mine, failed }: EncryptedMediaBubbleProps) {
+  const isUploading = Boolean(mine && payload.isUploading && !failed);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!payload.url?.startsWith('blob:'));
   const [error, setError] = useState(false);
 
   // Audio player state
@@ -132,8 +134,8 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
           {/* Play/Pause Button */}
           <button
             type="button"
-            onClick={payload.isUploading ? undefined : togglePlay}
-            disabled={payload.isUploading}
+            onClick={isUploading ? undefined : togglePlay}
+            disabled={isUploading}
             className={cn(
               'grid h-9 w-9 shrink-0 place-items-center rounded-full transition-transform active:scale-95 cursor-pointer',
               mine
@@ -141,8 +143,10 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
                 : 'bg-zinc-800 text-white dark:bg-white/20 dark:text-white shadow-sm'
             )}
           >
-            {payload.isUploading ? (
+            {isUploading ? (
               <Loader2 size={16} className="animate-spin" />
+            ) : mine && failed ? (
+              <RotateCcw size={15} className="text-red-400" />
             ) : isPlaying ? (
               <Pause size={15} />
             ) : (
@@ -153,7 +157,7 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
           {/* Scrubber & Waveform track */}
           <div className="flex flex-1 flex-col justify-center gap-1">
             <div
-              onClick={payload.isUploading ? undefined : handleSeek}
+              onClick={isUploading ? undefined : handleSeek}
               className="relative h-2 w-full cursor-pointer rounded-full bg-black/10 dark:bg-white/10 overflow-hidden"
             >
               <div
@@ -166,13 +170,13 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
             </div>
 
             <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
-              <span>{payload.isUploading ? 'Sending…' : formatSeconds(currentTime)}</span>
+              <span>{isUploading ? 'Sending…' : mine && failed ? 'Failed' : formatSeconds(currentTime)}</span>
               <span>{formatSeconds(duration || currentTime)}</span>
             </div>
           </div>
 
           {/* Speed Toggle */}
-          {!payload.isUploading && (
+          {!isUploading && !failed && (
             <button
               type="button"
               onClick={toggleSpeed}
@@ -194,17 +198,25 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
           <img
             src={mediaUrl}
             alt="Encrypted media"
-            onClick={() => !payload.isUploading && setFullView(true)}
+            onClick={() => !isUploading && setFullView(true)}
             className={cn(
               'max-h-64 sm:max-h-80 w-auto rounded-lg object-cover cursor-pointer transition-transform hover:scale-[1.01] active:scale-98',
-              payload.isUploading && 'brightness-75'
+              isUploading && 'brightness-75',
+              mine && failed && 'brightness-60 grayscale-[30%]'
             )}
           />
 
-          {payload.isUploading ? (
+          {isUploading ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/45 backdrop-blur-[1px] pointer-events-none select-none rounded-lg">
               <div className="h-10 w-10 rounded-full border-2 border-white/20 border-t-white animate-spin flex items-center justify-center" />
               <span className="text-[11px] font-medium text-white/95 drop-shadow">Sending…</span>
+            </div>
+          ) : mine && failed ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 backdrop-blur-[1px] pointer-events-none select-none rounded-lg text-white">
+              <div className="grid h-9 w-9 place-items-center rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+                <RotateCcw size={17} />
+              </div>
+              <span className="text-[11px] font-medium text-red-200">Upload failed</span>
             </div>
           ) : (
             <div className="absolute top-1.5 right-1.5 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
@@ -245,19 +257,27 @@ export function EncryptedMediaBubble({ payload, mine }: EncryptedMediaBubbleProp
       <div className="relative overflow-hidden rounded-lg max-w-sm">
         <video
           src={mediaUrl}
-          controls={!payload.isUploading}
+          controls={!isUploading && !failed}
           playsInline
           className={cn(
             'max-h-64 sm:max-h-80 w-full rounded-lg bg-black object-contain shadow-sm',
-            payload.isUploading && 'brightness-75'
+            isUploading && 'brightness-75',
+            mine && failed && 'brightness-60'
           )}
         />
-        {payload.isUploading && (
+        {isUploading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/45 backdrop-blur-[1px] pointer-events-none select-none rounded-lg">
             <div className="h-10 w-10 rounded-full border-2 border-white/20 border-t-white animate-spin flex items-center justify-center" />
             <span className="text-[11px] font-medium text-white/95 drop-shadow">Sending video…</span>
           </div>
-        )}
+        ) : mine && failed ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 backdrop-blur-[1px] pointer-events-none select-none rounded-lg text-white">
+            <div className="grid h-9 w-9 place-items-center rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
+              <RotateCcw size={17} />
+            </div>
+            <span className="text-[11px] font-medium text-red-200">Upload failed</span>
+          </div>
+        ) : null}
       </div>
     );
   }

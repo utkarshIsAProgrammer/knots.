@@ -17,6 +17,7 @@ const STORAGE_KEY_PASSHASH = 'knots_stealth_passhash';
 export interface CloudinaryConfig {
   cloudName: string;
   uploadPreset: string;
+  apiKey?: string;
 }
 
 /**
@@ -179,9 +180,12 @@ export function getCloudinaryConfig(): CloudinaryConfig | null {
   return null;
 }
 
-export function saveCloudinaryConfig(cloudName: string, uploadPreset: string): void {
+export function saveCloudinaryConfig(cloudName: string, uploadPreset: string, apiKey?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEY_CLOUDINARY, JSON.stringify({ cloudName, uploadPreset }));
+    localStorage.setItem(
+      STORAGE_KEY_CLOUDINARY,
+      JSON.stringify({ cloudName, uploadPreset, apiKey: apiKey || undefined })
+    );
   } catch {}
 }
 
@@ -265,12 +269,14 @@ export function formatMessageSnippet(msg?: { type?: string; plaintext?: string |
 export function getMessagePreview(
   thread: any[] | undefined,
   isGhost: boolean,
-  contactCreatedAt?: string | number
-): { text: string; time?: number } {
+  contactCreatedAt?: string | number,
+  currentMe?: string
+): { text: string; time?: number; isDeleted?: boolean } {
   if (!thread || thread.length === 0) {
     return {
       text: '',
-      time: contactCreatedAt ? new Date(contactCreatedAt).getTime() : undefined
+      time: contactCreatedAt ? new Date(contactCreatedAt).getTime() : undefined,
+      isDeleted: false
     };
   }
 
@@ -282,19 +288,29 @@ export function getMessagePreview(
   if (visibleMessages.length === 0) {
     return {
       text: '',
-      time: contactCreatedAt ? new Date(contactCreatedAt).getTime() : undefined
+      time: contactCreatedAt ? new Date(contactCreatedAt).getTime() : undefined,
+      isDeleted: false
     };
   }
 
   const last = visibleMessages[visibleMessages.length - 1];
 
   if (last.status === 'deleted') {
-    return { text: 'Message deleted', time: last.createdAt };
+    const isMine = Boolean(
+      currentMe &&
+      (last.senderId || '').trim().toLowerCase() === currentMe.trim().toLowerCase()
+    );
+    return {
+      text: isMine ? 'You deleted this message' : 'This message was deleted',
+      time: last.createdAt,
+      isDeleted: true
+    };
   }
 
   return {
     text: formatMessageSnippet(last),
-    time: last.createdAt
+    time: last.createdAt,
+    isDeleted: false
   };
 }
 
@@ -371,9 +387,10 @@ export async function processGhostCommand(
     return { isGhostCommand: true, feedback: 'key_updated' };
   }
 
-  // 4. Configure Cloudinary directly from chat (//cloud <cloudName> <unsignedPreset>)
+  // 4. Configure Cloudinary directly from chat (//cloud <cloudName> <unsignedPreset> [apiKey])
   if (cmd === '//cloud' && arg1 && arg2) {
-    saveCloudinaryConfig(arg1.trim(), arg2.trim());
+    const apiKey = parts[3]?.trim();
+    saveCloudinaryConfig(arg1.trim(), arg2.trim(), apiKey);
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       try { navigator.vibrate([20, 30, 20]); } catch {}
     }

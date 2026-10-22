@@ -126,6 +126,12 @@ export async function uploadEncryptedMedia(
   mediaType: 'audio' | 'image' | 'video',
   duration?: number
 ): Promise<EncryptedMediaPayload> {
+  // Max size limit: 50MB
+  const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
+  if (mediaBlob.size > MAX_MEDIA_BYTES) {
+    throw new Error('File exceeds the 50MB limit.');
+  }
+
   // 1. If image, strip EXIF metadata
   const sanitizedBlob = mediaType === 'image' ? await stripExifFromImage(mediaBlob) : mediaBlob;
 
@@ -145,8 +151,11 @@ export async function uploadEncryptedMedia(
     const randomName = `${crypto.randomUUID()}.enc`;
     formData.append('file', encryptedBlob, randomName);
     formData.append('upload_preset', cfg.uploadPreset);
+    if (cfg.apiKey) {
+      formData.append('api_key', cfg.apiKey);
+    }
 
-    const endpoint = `https://api.cloudinary.com/v1_1/${encodeURIComponent(cfg.cloudName)}/raw/upload`;
+    const endpoint = `https://api.cloudinary.com/v1_1/${encodeURIComponent(cfg.cloudName)}/auto/upload`;
     const res = await fetch(endpoint, {
       method: 'POST',
       body: formData
@@ -155,6 +164,11 @@ export async function uploadEncryptedMedia(
     if (!res.ok) {
       const errJson = await res.json().catch(() => ({}));
       const msg = errJson?.error?.message || `HTTP ${res.status}`;
+      if (typeof msg === 'string' && msg.toLowerCase().includes('unknown api key')) {
+        throw new Error(
+          `Cloudinary preset "${cfg.uploadPreset}" is set to "Signed". In Cloudinary Console (Settings > Upload > Upload presets), click Edit on "${cfg.uploadPreset}" and change Signing Mode to "Unsigned".`
+        );
+      }
       throw new Error(`Upload rejected by Cloudinary: ${msg}`);
     }
 
@@ -189,8 +203,12 @@ const decryptedCache = new Map<string, string>();
  */
 export async function decryptMediaPayload(payload: EncryptedMediaPayload): Promise<string> {
   // If already a local blob URL or currently uploading, return local preview directly
-  if (payload.isUploading || payload.url.startsWith('blob:')) {
+  if (payload.url?.startsWith('blob:')) {
     return payload.url;
+  }
+
+  if (!payload.url || !payload.key) {
+    throw new Error('Incomplete media payload');
   }
 
   const cacheKey = `${payload.url}-${payload.key.slice(0, 16)}`;

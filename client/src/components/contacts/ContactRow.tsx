@@ -1,4 +1,4 @@
-import { BellOff, Check, Clock } from 'lucide-react';
+import { Ban, BellOff, Check, Clock } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { Badge } from '../ui/Badge';
 import { cn } from '../../lib/cn';
@@ -10,6 +10,7 @@ interface ContactRowProps {
   active?: boolean;
   preview?: string;
   previewTime?: number;
+  isDeleted?: boolean;
   unread?: number;
   online?: boolean;
   typing?: boolean;
@@ -21,6 +22,7 @@ export function ContactRow({
   active,
   preview,
   previewTime,
+  isDeleted,
   unread = 0,
   online,
   typing,
@@ -63,7 +65,16 @@ export function ContactRow({
           {pending && <Clock size={12} className="shrink-0 text-amber-500" />}
         </div>
         <p className={cn('truncate text-[12.5px]', typing ? 'text-zinc-900 dark:text-white font-medium' : 'text-zinc-500 dark:text-zinc-400')}>
-          {typing ? 'typing…' : preview || (pending ? 'Request pending' : 'No messages yet')}
+          {typing ? (
+            'typing…'
+          ) : isDeleted ? (
+            <span className="inline-flex items-center gap-1 italic text-zinc-400 dark:text-zinc-500">
+              <Ban size={12} className="shrink-0" />
+              <span>{preview}</span>
+            </span>
+          ) : (
+            preview || (pending ? 'Request pending' : 'No messages yet')
+          )}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
@@ -73,7 +84,7 @@ export function ContactRow({
             <Badge tone="filament" className="border-[color-mix(in_srgb,var(--accent)_50%,transparent)]">
               {unread > 9 ? '9+' : unread}
             </Badge>
-          ) : preview && !pending ? (
+          ) : preview && !pending && !isDeleted ? (
             <Check size={13} className="text-[var(--text-3)] opacity-60" />
           ) : null}
         </div>
