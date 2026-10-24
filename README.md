@@ -310,7 +310,8 @@ knots./
 
 ## 📄 License
 
-This project is licensed under the [MIT License](LICENSE) — see the LICENSE file for details.
+This project is licensed under the [MIT License](LICENSE) — see the LICENSE file for details.  
+Architected and built by [Utkarsh Yadav](https://github.com/utkarshIsAProgrammer).
 
 ---
 
