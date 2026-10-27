@@ -60,6 +60,8 @@ export default function App() {
     void useContacts.getState().load();
     void useChat.getState().bootstrap();
     usePresence.getState().start(knotId, () => useContacts.getState().contacts.map((c) => c.knot_id));
+    // Keep this device registered for Web Push (works when the app is closed).
+    void notifications.enablePush();
     return () => usePresence.getState().stop();
   }, [knotId]);
 

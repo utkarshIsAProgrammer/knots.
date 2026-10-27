@@ -221,6 +221,17 @@ export const api = {
     );
   },
 
+  pushPublicKey() {
+    return request<{ success: boolean; publicKey: string }>('/push/vapid-public-key');
+  },
+
+  subscribePush(knotId: string, subscription: PushSubscriptionJSON) {
+    return request<{ success: boolean }>('/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify({ knotId, subscription })
+    });
+  },
+
   markRead(messageId: string) {
     return request<{ success: boolean }>(`/messages/${encodeURIComponent(messageId)}/read`, {
       method: 'POST'

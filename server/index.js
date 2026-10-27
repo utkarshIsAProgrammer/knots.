@@ -8,6 +8,28 @@ const sha512 = (data) => crypto.createHash('sha512').update(data).digest();
 
 const compression = require('compression');
 
+let webpush = null;
+try {
+  webpush = require('web-push');
+} catch (err) {
+  console.warn('web-push module unavailable — background push notifications disabled.');
+}
+
+// Web Push VAPID configuration. The relay stays server-blind: push payloads only
+// ever carry a sender Knot ID, never message content or keys.
+const VAPID_PUBLIC_KEY = (process.env.VAPID_PUBLIC_KEY || '').trim();
+const VAPID_PRIVATE_KEY = (process.env.VAPID_PRIVATE_KEY || '').trim();
+const VAPID_SUBJECT = (process.env.VAPID_SUBJECT || 'mailto:notifications@knots.local').trim();
+let pushConfigured = false;
+if (webpush && VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+    pushConfigured = true;
+  } catch (err) {
+    console.warn('Invalid VAPID keys — push notifications disabled:', err.message);
+  }
+}
+
 const app = express();
 app.use(compression());
 app.use(express.json({ limit: '15mb' }));
@@ -39,12 +61,14 @@ let db = null;
 let offlineQueueCollection = null;
 let usersCollection = null;
 let contactsCollection = null;
+let pushSubscriptionsCollection = null;
 
 // In-memory memory fallback in case DB is unreachable
 const memoryStore = {
   users: new Map(),
   contacts: [],
   messages: [],
+  pushSubscriptions: [],
   presence: new Map() // knotId -> { lastSeen: number, typingTo: string }
 };
 
@@ -90,12 +114,15 @@ async function connectMongo() {
       offlineQueueCollection = db.collection('offline_queue');
       usersCollection = db.collection('users');
       contactsCollection = db.collection('contact_requests');
+      pushSubscriptionsCollection = db.collection('push_subscriptions');
 
       // Create TTL index (expires dynamically based on expires_at date)
       await offlineQueueCollection.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 }).catch(() => {});
       await offlineQueueCollection.createIndex({ created_at: 1 }, { expireAfterSeconds: 86400 }).catch(() => {});
       await usersCollection.createIndex({ knot_id: 1 }, { unique: true }).catch(() => {});
       await usersCollection.createIndex({ username: 1 }, { unique: true, sparse: true }).catch(() => {});
+      await pushSubscriptionsCollection.createIndex({ knot_id: 1 }).catch(() => {});
+      await pushSubscriptionsCollection.createIndex({ endpoint: 1 }, { unique: true }).catch(() => {});
       console.log('✓ MongoDB connected & indexes ensured');
     }
   } catch (err) {
@@ -159,6 +186,116 @@ app.get('/api/v1/events/:knotId', (req, res) => {
       sseClients.delete(key);
     }
   });
+});
+
+// ===== Web Push: waking a closed app =====
+// One opaque push endpoint is stored per device, keyed by Knot ID. Nothing about
+// the message itself is stored or transmitted here — the payload is content-free.
+
+function normalizePushSubscription(subscription) {
+  if (!subscription || typeof subscription.endpoint !== 'string' || !subscription.endpoint.trim()) {
+    return null;
+  }
+  return {
+    endpoint: subscription.endpoint.trim(),
+    keys: {
+      p256dh: subscription.keys?.p256dh || '',
+      auth: subscription.keys?.auth || ''
+    },
+    expirationTime: subscription.expirationTime ?? null
+  };
+}
+
+async function savePushSubscription(knotId, subscription) {
+  const record = {
+    knot_id: knotId,
+    endpoint: subscription.endpoint,
+    keys: subscription.keys,
+    expirationTime: subscription.expirationTime,
+    updated_at: new Date()
+  };
+  if (pushSubscriptionsCollection) {
+    await pushSubscriptionsCollection.updateOne({ endpoint: record.endpoint }, { $set: record }, { upsert: true });
+  } else {
+    const idx = memoryStore.pushSubscriptions.findIndex((s) => s.endpoint === record.endpoint);
+    if (idx >= 0) memoryStore.pushSubscriptions[idx] = record;
+    else memoryStore.pushSubscriptions.push(record);
+  }
+}
+
+async function loadPushSubscriptions(knotId) {
+  if (pushSubscriptionsCollection) {
+    return pushSubscriptionsCollection.find({ knot_id: knotId }).toArray();
+  }
+  return memoryStore.pushSubscriptions.filter((s) => s.knot_id === knotId);
+}
+
+async function removePushSubscription(record) {
+  if (pushSubscriptionsCollection) {
+    await pushSubscriptionsCollection.deleteOne({ endpoint: record.endpoint });
+  } else {
+    memoryStore.pushSubscriptions = memoryStore.pushSubscriptions.filter((s) => s.endpoint !== record.endpoint);
+  }
+}
+
+async function sendPushNotification(targetKnotId, payload) {
+  if (!pushConfigured || !targetKnotId) return;
+  const key = String(targetKnotId).trim().toLowerCase();
+  if (!key) return;
+
+  let records = [];
+  try {
+    records = await loadPushSubscriptions(key);
+  } catch (err) {
+    console.warn('Push subscription lookup failed:', err.message);
+    return;
+  }
+
+  await Promise.all(
+    records.map(async (record) => {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: record.endpoint,
+            keys: record.keys,
+            expirationTime: record.expirationTime ?? null
+          },
+          JSON.stringify(payload),
+          { TTL: 3600, urgency: 'high' }
+        );
+      } catch (err) {
+        const status = err?.statusCode;
+        if (status === 404 || status === 410) {
+          // The browser revoked this subscription — drop it so we stop retrying.
+          await removePushSubscription(record).catch(() => {});
+        } else {
+          console.warn('Push delivery failed:', status || err.message);
+        }
+      }
+    })
+  );
+}
+
+app.get('/api/v1/push/vapid-public-key', (req, res) => {
+  if (!pushConfigured) {
+    return res.status(503).json({ error: 'Push notifications are not configured on this relay.' });
+  }
+  res.json({ success: true, publicKey: VAPID_PUBLIC_KEY });
+});
+
+app.post('/api/v1/push/subscribe', async (req, res) => {
+  const { knotId, subscription } = req.body || {};
+  const key = String(knotId || '').trim().toLowerCase();
+  const normalized = normalizePushSubscription(subscription);
+  if (!key || !normalized) {
+    return res.status(400).json({ error: 'knotId and a valid push subscription are required' });
+  }
+  try {
+    await savePushSubscription(key, normalized);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Helper to validate and normalize username
@@ -734,6 +871,14 @@ app.post('/api/v1/message', async (req, res) => {
       senderKnotId,
       message: messageDoc
     });
+
+    // Wake a closed app via Web Push. Only when the recipient has no live SSE
+    // stream, so an already-open tab never receives a duplicate alert.
+    const recipientKey = String(recipientKnotId || '').trim().toLowerCase();
+    const recipientOnline = (sseClients.get(recipientKey)?.size || 0) > 0;
+    if (!recipientOnline) {
+      void sendPushNotification(recipientKey, { type: 'message', peer: senderKnotId });
+    }
 
     res.json({
       success: true,
