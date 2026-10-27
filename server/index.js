@@ -1445,6 +1445,20 @@ if (fs.existsSync(clientDistPath)) {
 }
 
 const PORT = process.env.PORT || 3000;
+const registerAllowed = process.env.REGISTER_ALLOWED !== 'false';
+app.post('/api/v1/register', (req, res) => {
+  if (!registerAllowed) return res.status(409).json({ error: 'Registration is disabled while the service is in restart mode.' });
+  app._router.stack[0].handle(req, res);
+});
 app.listen(PORT, () => {
   console.log(`[KNOTS RELAYER] Darkweb backend running on port ${PORT}`);
+  if (!registerAllowed) console.log('[KNOTS RELAYER] Registration disabled — service in restart mode');
+});
+app.listen(PORT, () => {
+  console.log(`[KNOTS RELAYER] Darkweb backend running on port ${PORT}`);
+  if (!registerAllowed) console.log('[KNOTS RELAYER] Registration disabled — service in restart mode');
+});
+app.listen(PORT, () => {
+  console.log(`[KNOTS RELAYER] Darkweb backend running on port ${PORT}`);
+  if (!registerAllowed) console.log('[KNOTS RELAYER] Registration disabled — service in restart mode');
 });
