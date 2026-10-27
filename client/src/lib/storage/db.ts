@@ -120,3 +120,32 @@ export async function purgeVault(): Promise<void> {
     db.settings.clear()
   ]);
 }
+
+/* --------------------------- remote wipe ---------------------------- */
+
+// Marker for the one-time device wipe. It lives in localStorage rather than the
+// vault because purgeVault() clears the vault, and the marker has to survive so
+// the wipe only ever runs once per device.
+const REMOTE_WIPE_FLAG = 'knots_remote_wipe_v1';
+
+/**
+ * Runs the pending device wipe, if any. Shipping a build with this enabled
+ * destroys the local identity, contacts, history and settings on every device
+ * the next time the app is opened there. Devices that never open the app again
+ * keep their local data, and a saved mnemonic can always recreate the identity.
+ *
+ * Idempotent: the flag is only written after a successful wipe. Bump the flag
+ * name to trigger a wipe again on a future build.
+ */
+export async function runPendingDeviceWipe(): Promise<boolean> {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    if (localStorage.getItem(REMOTE_WIPE_FLAG) === 'done') return false;
+    await purgeVault();
+    localStorage.setItem(REMOTE_WIPE_FLAG, 'done');
+    return true;
+  } catch {
+    // Leave the marker unset so the wipe is retried on the next load.
+    return false;
+  }
+}
