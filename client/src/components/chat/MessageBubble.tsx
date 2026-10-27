@@ -37,6 +37,8 @@ export interface MessageBubbleProps {
   onDelete: (message: StoredMessage) => void;
   onReact: (message: StoredMessage, emoji: string) => void;
   onRetry?: (message: StoredMessage) => void;
+  onJumpToMessage?: (id: string) => void;
+  highlighted?: boolean;
 }
 
 function getMenuCoordinates(x: number, y: number, isOutgoing: boolean) {
@@ -64,6 +66,53 @@ function getMenuCoordinates(x: number, y: number, isOutgoing: boolean) {
   return { posX, posY };
 }
 
+type ReplyRefValue = NonNullable<StoredMessage['replyTo']>;
+
+/**
+ * WhatsApp-style quoted reply preview. Tapping it scrolls to — and briefly
+ * highlights — the original message inside the current thread.
+ */
+function ReplyQuote({
+  reply,
+  mine,
+  me,
+  onJump
+}: {
+  reply: ReplyRefValue;
+  mine: boolean;
+  me: string;
+  onJump?: (id: string) => void;
+}) {
+  const canJump = Boolean(reply.id && onJump);
+  return (
+    <button
+      type="button"
+      disabled={!canJump}
+      aria-label="Go to replied message"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (canJump) onJump?.(reply.id);
+      }}
+      className={cn(
+        'mb-2 flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors',
+        mine
+          ? 'border-l-2 border-l-zinc-700 bg-black/[0.04] dark:border-l-white dark:bg-white/10'
+          : 'border-l-2 border-l-zinc-500 bg-black/[0.03] dark:bg-white/5',
+        canJump && 'cursor-pointer hover:bg-black/[0.07] dark:hover:bg-white/15 active:bg-black/10 dark:active:bg-white/20'
+      )}
+    >
+      <div className="min-w-0">
+        <p className="mono truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-400">
+          {(reply.sender || '').trim().toLowerCase() === (me || '').trim().toLowerCase()
+            ? 'You'
+            : `${(reply.sender || '').slice(0, 14)}…`}
+        </p>
+        <p className="truncate text-[12px] text-zinc-800 dark:text-zinc-300 font-normal">{reply.text}</p>
+      </div>
+    </button>
+  );
+}
+
 function MessageBubbleComponent({
   message,
   mine,
@@ -73,7 +122,9 @@ function MessageBubbleComponent({
   onEdit,
   onDelete,
   onReact,
-  onRetry
+  onRetry,
+  onJumpToMessage,
+  highlighted
 }: MessageBubbleProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [showFullPicker, setShowFullPicker] = useState(false);
@@ -252,6 +303,7 @@ function MessageBubbleComponent({
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
+        data-message-id={message.id}
         className={cn('group relative flex w-full select-none touch-pan-y', mine ? 'justify-end' : 'justify-start')}
       >
         {/* Swipe-to-reply visual indicator */}
@@ -272,10 +324,13 @@ function MessageBubbleComponent({
         <div
           style={{
             transform: swipeOffset ? `translate3d(${swipeOffset}px, 0, 0)` : undefined,
-            transition: isSwiping ? 'none' : 'transform 0.22s cubic-bezier(0.2, 0.9, 0.4, 1.1)'
+            transition: isSwiping
+              ? 'none'
+              : 'transform 0.22s cubic-bezier(0.2, 0.9, 0.4, 1.1), background-color 0.4s ease, box-shadow 0.4s ease'
           }}
           className={cn(
             'relative max-w-[84%] sm:max-w-[70%]',
+            highlighted && 'rounded-xl ring-2 ring-amber-400/90 dark:ring-amber-400/80',
             deleted && 'opacity-60',
             !deleted && (message.reactions?.length ?? 0) > 0 && 'mb-3'
           )}
@@ -335,25 +390,7 @@ function MessageBubbleComponent({
               ) : mediaPayload ? (
                 <>
                   {message.replyTo && (
-                    <div
-                      className={cn(
-                        'mb-2 flex items-start gap-2 rounded-md px-2.5 py-1.5',
-                        mine
-                          ? 'border-l-2 border-l-zinc-700 bg-black/[0.04] dark:border-l-white dark:bg-white/10'
-                          : 'border-l-2 border-l-zinc-500 bg-black/[0.03] dark:bg-white/5'
-                      )}
-                    >
-                      <div className="min-w-0">
-                        <p className="mono truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-400">
-                          {(message.replyTo.sender || '').trim().toLowerCase() === (me || '').trim().toLowerCase()
-                            ? 'You'
-                            : `${(message.replyTo.sender || '').slice(0, 14)}…`}
-                        </p>
-                        <p className="truncate text-[12px] text-zinc-800 dark:text-zinc-300 font-normal">
-                          {message.replyTo.text}
-                        </p>
-                      </div>
-                    </div>
+                    <ReplyQuote reply={message.replyTo} mine={mine} me={me} onJump={onJumpToMessage} />
                   )}
                   <EncryptedMediaBubble
                     payload={mediaPayload}
@@ -365,25 +402,7 @@ function MessageBubbleComponent({
               ) : (
                 <>
                   {message.replyTo && (
-                    <div
-                      className={cn(
-                        'mb-2 flex items-start gap-2 rounded-md px-2.5 py-1.5',
-                        mine
-                          ? 'border-l-2 border-l-zinc-700 bg-black/[0.04] dark:border-l-white dark:bg-white/10'
-                          : 'border-l-2 border-l-zinc-500 bg-black/[0.03] dark:bg-white/5'
-                      )}
-                    >
-                      <div className="min-w-0">
-                        <p className="mono truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-400">
-                          {(message.replyTo.sender || '').trim().toLowerCase() === (me || '').trim().toLowerCase()
-                            ? 'You'
-                            : `${(message.replyTo.sender || '').slice(0, 14)}…`}
-                        </p>
-                        <p className="truncate text-[12px] text-zinc-800 dark:text-zinc-300 font-normal">
-                          {message.replyTo.text}
-                        </p>
-                      </div>
-                    </div>
+                    <ReplyQuote reply={message.replyTo} mine={mine} me={me} onJump={onJumpToMessage} />
                   )}
                   <p className="whitespace-pre-wrap break-words">{message.plaintext}</p>
                 </>
@@ -775,6 +794,8 @@ export const MessageBubble = memo(MessageBubbleComponent, (prev, next) => {
     prev.message.type === next.message.type &&
     prev.message.sticker === next.message.sticker &&
     areReactionsEqual(prev.message.reactions, next.message.reactions) &&
-    areReplyToEqual(prev.message.replyTo, next.message.replyTo)
+    areReplyToEqual(prev.message.replyTo, next.message.replyTo) &&
+    prev.highlighted === next.highlighted &&
+    prev.onJumpToMessage === next.onJumpToMessage
   );
 });

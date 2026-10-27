@@ -92,6 +92,8 @@ export function ChatView() {
   const viewport = useVisualViewport();
   const isDesktop = useIsDesktop();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isGhost = useGhostStore((s) => s.unlocked);
 
@@ -111,6 +113,35 @@ export function ChatView() {
       top: el.scrollHeight,
       behavior: smooth ? 'smooth' : 'auto'
     });
+  }, []);
+
+  // WhatsApp-style reply jump: scroll to the original message and flash it.
+  const handleJumpToMessage = useCallback((id: string) => {
+    if (!id) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const target = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]')).find(
+      (el) => el.dataset.messageId === id
+    );
+    if (!target) {
+      toast.info('Original message unavailable', 'It was deleted or is hidden by the current filter.');
+      return;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const top =
+      container.scrollTop + (targetRect.top - containerRect.top) - container.clientHeight / 2 + targetRect.height / 2;
+    container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+
+    setHighlightedId(id);
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightedId(null), 1600);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -341,6 +372,8 @@ export function ChatView() {
             onDelete={handleDelete}
             onReact={handleReact}
             onRetry={handleRetry}
+            onJumpToMessage={handleJumpToMessage}
+            highlightedId={highlightedId}
           />
         )}
       </div>
