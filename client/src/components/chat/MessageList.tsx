@@ -19,7 +19,9 @@ interface MessageListProps {
   onReact: (message: StoredMessage, emoji: string) => void;
   onRetry?: (message: StoredMessage) => void;
   onJumpToMessage?: (id: string) => void;
+  onTapMessage?: (id: string) => void;
   highlightedId?: string | null;
+  deletedMessageIds?: Set<string>;
 }
 
 export const MessageList = memo(function MessageList({
@@ -35,7 +37,9 @@ export const MessageList = memo(function MessageList({
   onReact,
   onRetry,
   onJumpToMessage,
-  highlightedId
+  onTapMessage,
+  highlightedId,
+  deletedMessageIds
 }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -66,7 +70,9 @@ export const MessageList = memo(function MessageList({
                   onReact={onReact}
                   onRetry={onRetry}
                   onJumpToMessage={onJumpToMessage}
+                  onTapMessage={onTapMessage}
                   highlighted={message.id === highlightedId}
+                  replyDeleted={message.replyTo ? deletedMessageIds?.has(message.replyTo.id) ?? false : false}
                 />
               </div>
             </motion.div>

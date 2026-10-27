@@ -99,8 +99,18 @@ export function ChatView() {
 
   const visibleMessages = useMemo(() => {
     if (isGhost) return messages;
-    return messages.filter((m) => !isMediaMessage(m));
+    // Deleted tombstones always render: they carry no media payload, and replies
+    // must still be able to jump to them.
+    return messages.filter((m) => !isMediaMessage(m) || m.status === 'deleted');
   }, [messages, isGhost]);
+
+  const deletedMessageIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of messages) {
+      if (m.status === 'deleted') ids.add(m.id);
+    }
+    return ids;
+  }, [messages]);
 
   const visible = query
     ? visibleMessages.filter((m) => m.plaintext.toLowerCase().includes(query.toLowerCase()))
@@ -143,6 +153,24 @@ export function ChatView() {
       if (highlightTimer.current) clearTimeout(highlightTimer.current);
     };
   }, []);
+
+  const pendingSearchJump = useRef<string | null>(null);
+
+  // Tapping a search match drops the inline filter so the message can be shown
+  // in its full context, then jumps to it once the unfiltered thread has painted.
+  const handleTapSearchResult = useCallback((id: string) => {
+    if (!id) return;
+    pendingSearchJump.current = id;
+    setQuery('');
+  }, []);
+
+  useEffect(() => {
+    const id = pendingSearchJump.current;
+    if (!id || query) return;
+    pendingSearchJump.current = null;
+    const raf = requestAnimationFrame(() => handleJumpToMessage(id));
+    return () => cancelAnimationFrame(raf);
+  }, [query, handleJumpToMessage]);
 
   useEffect(() => {
     scrollToBottom(false);
@@ -373,7 +401,9 @@ export function ChatView() {
             onReact={handleReact}
             onRetry={handleRetry}
             onJumpToMessage={handleJumpToMessage}
+            onTapMessage={query ? handleTapSearchResult : undefined}
             highlightedId={highlightedId}
+            deletedMessageIds={deletedMessageIds}
           />
         )}
       </div>

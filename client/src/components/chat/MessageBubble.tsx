@@ -38,7 +38,9 @@ export interface MessageBubbleProps {
   onReact: (message: StoredMessage, emoji: string) => void;
   onRetry?: (message: StoredMessage) => void;
   onJumpToMessage?: (id: string) => void;
+  onTapMessage?: (id: string) => void;
   highlighted?: boolean;
+  replyDeleted?: boolean;
 }
 
 function getMenuCoordinates(x: number, y: number, isOutgoing: boolean) {
@@ -76,11 +78,13 @@ function ReplyQuote({
   reply,
   mine,
   me,
+  deleted,
   onJump
 }: {
   reply: ReplyRefValue;
   mine: boolean;
   me: string;
+  deleted?: boolean;
   onJump?: (id: string) => void;
 }) {
   const canJump = Boolean(reply.id && onJump);
@@ -107,7 +111,14 @@ function ReplyQuote({
             ? 'You'
             : `${(reply.sender || '').slice(0, 14)}…`}
         </p>
-        <p className="truncate text-[12px] text-zinc-800 dark:text-zinc-300 font-normal">{reply.text}</p>
+        {deleted ? (
+          <span className="flex items-center gap-1 text-[12px] italic text-zinc-500 dark:text-zinc-400">
+            <Ban size={11} className="shrink-0" />
+            This message was deleted
+          </span>
+        ) : (
+          <p className="truncate text-[12px] text-zinc-800 dark:text-zinc-300 font-normal">{reply.text}</p>
+        )}
       </div>
     </button>
   );
@@ -124,7 +135,9 @@ function MessageBubbleComponent({
   onReact,
   onRetry,
   onJumpToMessage,
-  highlighted
+  onTapMessage,
+  highlighted,
+  replyDeleted
 }: MessageBubbleProps) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [showFullPicker, setShowFullPicker] = useState(false);
@@ -286,8 +299,10 @@ function MessageBubbleComponent({
 
   const isGhost = useGhostStore((s) => s.unlocked);
 
-  // Stealth mode enforcement: completely hide encrypted media bubbles in normal mode
-  if (!isGhost && (isMediaMessage(message) || mediaPayload !== null)) {
+  // Stealth mode enforcement: completely hide encrypted media bubbles in normal
+  // mode, but always render deleted tombstones so replies can jump to them
+  // (tombstones carry no media payload).
+  if (!isGhost && message.status !== 'deleted' && (isMediaMessage(message) || mediaPayload !== null)) {
     return null;
   }
 
@@ -304,6 +319,16 @@ function MessageBubbleComponent({
         onTouchEnd={handleTouchEnd}
         onTouchCancel={handleTouchEnd}
         data-message-id={message.id}
+        onClick={(e) => {
+          // Only wired up while a search filter is active, so normal tapping,
+          // selecting and gesture behaviour stays untouched otherwise.
+          if (!onTapMessage) return;
+          const el = e.target as HTMLElement;
+          if (el.closest('button, a, input, textarea')) return;
+          const selection = window.getSelection();
+          if (selection && selection.toString().length > 0) return;
+          onTapMessage(message.id);
+        }}
         className={cn('group relative flex w-full select-none touch-pan-y', mine ? 'justify-end' : 'justify-start')}
       >
         {/* Swipe-to-reply visual indicator */}
@@ -390,7 +415,13 @@ function MessageBubbleComponent({
               ) : mediaPayload ? (
                 <>
                   {message.replyTo && (
-                    <ReplyQuote reply={message.replyTo} mine={mine} me={me} onJump={onJumpToMessage} />
+                    <ReplyQuote
+                      reply={message.replyTo}
+                      mine={mine}
+                      me={me}
+                      deleted={replyDeleted}
+                      onJump={onJumpToMessage}
+                    />
                   )}
                   <EncryptedMediaBubble
                     payload={mediaPayload}
@@ -402,7 +433,13 @@ function MessageBubbleComponent({
               ) : (
                 <>
                   {message.replyTo && (
-                    <ReplyQuote reply={message.replyTo} mine={mine} me={me} onJump={onJumpToMessage} />
+                    <ReplyQuote
+                      reply={message.replyTo}
+                      mine={mine}
+                      me={me}
+                      deleted={replyDeleted}
+                      onJump={onJumpToMessage}
+                    />
                   )}
                   <p className="whitespace-pre-wrap break-words">{message.plaintext}</p>
                 </>
@@ -796,6 +833,8 @@ export const MessageBubble = memo(MessageBubbleComponent, (prev, next) => {
     areReactionsEqual(prev.message.reactions, next.message.reactions) &&
     areReplyToEqual(prev.message.replyTo, next.message.replyTo) &&
     prev.highlighted === next.highlighted &&
-    prev.onJumpToMessage === next.onJumpToMessage
+    prev.replyDeleted === next.replyDeleted &&
+    prev.onJumpToMessage === next.onJumpToMessage &&
+    prev.onTapMessage === next.onTapMessage
   );
 });
