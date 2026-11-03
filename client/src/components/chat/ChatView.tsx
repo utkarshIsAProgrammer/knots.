@@ -291,10 +291,6 @@ export function ChatView() {
                 <Mic size={13} className="shrink-0 animate-pulse text-emerald-500" />
                 <span className="italic">recording audio…</span>
               </div>
-            ) : presence?.isTyping ? (
-              <p className="truncate text-[12px] text-emerald-600 dark:text-emerald-400 font-medium">
-                typing…
-              </p>
             ) : (
               <p className={`truncate text-[12px] ${presence?.isOnline ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-zinc-500 dark:text-zinc-400'}`}>
                 {presence?.isOnline ? 'Active now' : 'Offline'}
