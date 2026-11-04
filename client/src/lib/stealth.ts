@@ -232,8 +232,9 @@ export function formatMessageSnippet(msg?: { type?: string; plaintext?: string |
 
   // Check if sticker or GIF
   if (msg.type === 'sticker' || Boolean(msg.sticker)) {
-    if (text.includes('giphy.com') || text.includes('tenor.com') || text.endsWith('.gif')) {
-      return 'Gif';
+    const src = (msg.sticker || text || '').toLowerCase();
+    if (src.includes('giphy.com') || src.includes('tenor.com') || src.includes('.gif')) {
+      return 'GIF';
     }
     return 'Sticker';
   }
@@ -243,10 +244,10 @@ export function formatMessageSnippet(msg?: { type?: string; plaintext?: string |
     return 'Sticker';
   }
   if (text.includes('giphy.com') || text.includes('tenor.com')) {
-    return 'Gif';
+    return 'GIF';
   }
   if (/^https?:\/\/.*\.(png|jpg|jpeg|webp|gif|svg)($|\?)/i.test(text)) {
-    return text.includes('.gif') ? 'Gif' : 'Sticker';
+    return text.includes('.gif') ? 'GIF' : 'Sticker';
   }
 
   // Check if raw JSON
@@ -256,7 +257,10 @@ export function formatMessageSnippet(msg?: { type?: string; plaintext?: string |
       if (parsed.mediaType === 'audio') return 'Audio';
       if (parsed.mediaType === 'video') return 'Video';
       if (parsed.mediaType === 'image') return 'Photo';
-      if (parsed.sticker) return 'Sticker';
+      if (parsed.sticker) {
+        const s = String(parsed.sticker).toLowerCase();
+        return (s.includes('giphy.com') || s.includes('tenor.com') || s.includes('.gif')) ? 'GIF' : 'Sticker';
+      }
     } catch {}
   }
 

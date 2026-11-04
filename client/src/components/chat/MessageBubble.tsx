@@ -79,13 +79,15 @@ function ReplyQuote({
   mine,
   me,
   deleted,
-  onJump
+  onJump,
+  standalone
 }: {
   reply: ReplyRefValue;
   mine: boolean;
   me: string;
   deleted?: boolean;
   onJump?: (id: string) => void;
+  standalone?: boolean;
 }) {
   const canJump = Boolean(reply.id && onJump);
   return (
@@ -99,10 +101,16 @@ function ReplyQuote({
       }}
       className={cn(
         'mb-2 flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors',
-        mine
-          ? 'border-l-2 border-l-zinc-700 bg-black/[0.04] dark:border-l-white dark:bg-white/10'
-          : 'border-l-2 border-l-zinc-500 bg-black/[0.03] dark:bg-white/5',
-        canJump && 'cursor-pointer hover:bg-black/[0.07] dark:hover:bg-white/15 active:bg-black/10 dark:active:bg-white/20'
+        standalone
+          ? 'border-l-2 border-l-zinc-700 dark:border-l-zinc-300 bg-zinc-100 dark:bg-[#1f1f23] border border-zinc-300 dark:border-white/15 shadow-sm dark:shadow-[0_2px_12px_rgba(0,0,0,0.8)] backdrop-blur-sm'
+          : mine
+            ? 'border-l-2 border-l-zinc-700 bg-black/[0.04] dark:border-l-white dark:bg-white/10'
+            : 'border-l-2 border-l-zinc-500 bg-black/[0.03] dark:bg-white/5',
+        canJump && (
+          standalone
+            ? 'cursor-pointer hover:bg-zinc-200 dark:hover:bg-[#2a2a30] active:bg-zinc-300 dark:active:bg-[#35353d]'
+            : 'cursor-pointer hover:bg-black/[0.07] dark:hover:bg-white/15 active:bg-black/10 dark:active:bg-white/20'
+        )
       )}
     >
       <div className="min-w-0">
@@ -152,7 +160,7 @@ function MessageBubbleComponent({
 
   const deleted = message.status === 'deleted';
   const stickerSrc = message.sticker || (message.type === 'sticker' ? message.plaintext : null);
-  const sticker = message.type === 'sticker' && Boolean(stickerSrc);
+  const sticker = !deleted && message.type === 'sticker' && Boolean(stickerSrc);
   const mediaPayload = useMemo(() => parseMediaPayload(message.plaintext), [message.plaintext]);
 
   useEffect(() => {
@@ -361,7 +369,19 @@ function MessageBubbleComponent({
           )}
         >
           {sticker ? (
-            <div className="flex flex-col items-end">
+            <div className={cn('flex flex-col', mine ? 'items-end' : 'items-start')}>
+              {message.replyTo && (
+                <div className="mb-1.5 w-full max-w-[240px] sm:max-w-[280px]">
+                  <ReplyQuote
+                    reply={message.replyTo}
+                    mine={mine}
+                    me={me}
+                    deleted={replyDeleted}
+                    onJump={onJumpToMessage}
+                    standalone
+                  />
+                </div>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
@@ -388,7 +408,7 @@ function MessageBubbleComponent({
                   stickerSrc
                 )}
               </button>
-              <div className="mt-1 flex items-center gap-1.5 px-1 text-[10px] text-zinc-500">
+              <div className={cn('mt-1 flex items-center gap-1.5 px-1 text-[10px] text-zinc-500', mine ? 'justify-end' : 'justify-start')}>
                 {message.expiresAt && !message.pending && !message.failed && !deleted && (
                   <BurnChip expiresAt={message.expiresAt} />
                 )}
