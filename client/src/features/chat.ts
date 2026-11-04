@@ -517,7 +517,7 @@ export const useChat = create<ChatState>((set, get) => ({
       thread: targetPeer,
       senderId: me,
       recipientId: targetPeer,
-      plaintext: text,
+      plaintext: text || (input.sticker ?? ''),
       ciphertext: enc.ciphertext,
       nonce: enc.iv,
       tag: enc.tag,

@@ -237,7 +237,8 @@ function ComposerComponent({
                   });
                 }}
                 onSticker={(sticker) => {
-                  onSend('', { sticker, ttlSeconds: ttl });
+                  onStopTyping?.();
+                  onSend('', { replyTo, sticker, ttlSeconds: ttl });
                   setTrayOpen(false);
                 }}
               />
